@@ -1,11 +1,11 @@
-# gh-extension-template
+# gh-migration-validator
 
-`gh-extension-template` is a template for creating GitHub CLI extensions. It provides a basic structure and some common features to help you get started quickly.
+`gh-migration-validator` is a GitHub CLI extension for validating GitHub organization migrations. It helps ensure that your migration from one GitHub organization to another has been completed successfully by comparing repositories other resources between source and target organizations.
 
 ## Install
 
 ```bash
-gh extension install mona-actions/<repo-name>
+gh extension install mona-actions/gh-migration-validator
 ```
 
 ## Dependencies
@@ -41,19 +41,19 @@ gh extension install mona-actions/<repo-name>
 
 ### Environment variables
 
-GitHub App authentication in this template is not handled by flags, but by environment variables. You can set them in your shell or in a `.env` file.
+GitHub App authentication in this migration validator is not handled by flags, but by environment variables. You can set them in your shell or in a `.env` file.
 This can be quickly changed to add flags for the app ID, private key, and installation ID.
 
-It's recommended to use the prefix set in the `viper` configuration, which is `GHET_` in this case, to avoid conflicts with other environment variables.
+It's recommended to use the prefix set in the `viper` configuration, which is `GHMV_` (GitHub Migration Validator), to avoid conflicts with other environment variables.
 
 ```sh
 # Required for GitHub App auth
-export GHET_SOURCE_APP_ID="123456"
-export GHET_SOURCE_PRIVATE_KEY="-----BEGIN RSA -----\n..."
-export GHET_SOURCE_INSTALLATION_ID="987654"
+export GHMV_SOURCE_APP_ID="123456"
+export GHMV_SOURCE_PRIVATE_KEY="-----BEGIN RSA -----\n..."
+export GHMV_SOURCE_INSTALLATION_ID="987654"
 
 # Optional Enterprise Server URL
-export GHET_SOURCE_HOSTNAME="https://github.example.com"
+export GHMV_SOURCE_HOSTNAME="https://github.example.com"
 ```
 
 ## License

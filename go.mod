@@ -1,4 +1,4 @@
-module mona-actions/gh-extension-template
+module mona-actions/gh-migration-validator
 
 go 1.23.0
 

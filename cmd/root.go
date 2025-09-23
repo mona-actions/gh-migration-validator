@@ -5,7 +5,7 @@ package cmd
 
 import (
 	"fmt"
-	"mona-actions/gh-extension-template/internal/api"
+	"mona-actions/gh-migration-validator/internal/api"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -20,14 +20,13 @@ func initializeAPI() {
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "gh-extension-template",
-	Short: "A brief description of your cli extension",
-	Long: `A longer description that spans multiple lines and likely contains
-examples and usage of using your application. For example:
+	Use:   "gh-migration-validator",
+	Short: "Validate GitHub organization migrations",
+	Long: `A GitHub CLI extension for validating GitHub organization migrations.
 
-this CLI extension is used for....
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+This tool helps ensure that your migration from one GitHub organization to another
+has been completed successfully by comparing certain repositories resources
+between source and target organizations.`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	Run: func(cmd *cobra.Command, args []string) {
@@ -40,11 +39,11 @@ to quickly create a Cobra application.`,
 		ghHostname := cmd.Flag("source-hostname").Value.String()
 
 		// Set ENV variables
-		os.Setenv("GHET_SOURCE_ORGANIZATION", sourceOrganization)
-		os.Setenv("GHET_TARGET_ORGANIZATION", targetOrganization)
-		os.Setenv("GHET_SOURCE_TOKEN", sourceToken)
-		os.Setenv("GHET_TARGET_TOKEN", targetToken)
-		os.Setenv("GHET_SOURCE_HOSTNAME", ghHostname)
+		os.Setenv("GHMV_SOURCE_ORGANIZATION", sourceOrganization)
+		os.Setenv("GHMV_TARGET_ORGANIZATION", targetOrganization)
+		os.Setenv("GHMV_SOURCE_TOKEN", sourceToken)
+		os.Setenv("GHMV_TARGET_TOKEN", targetToken)
+		os.Setenv("GHMV_SOURCE_HOSTNAME", ghHostname)
 
 		// Bind ENV variables in Viper
 		viper.BindEnv("SOURCE_ORGANIZATION")
@@ -116,7 +115,7 @@ func init() {
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
 
-	// rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.gh-extension-template.yaml)")
+	// rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.gh-migration-validator.yaml)")
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
@@ -135,7 +134,7 @@ func init() {
 
 	rootCmd.Flags().StringP("source-hostname", "u", "", "GitHub Enterprise source hostname url (optional) Ex. https://github.example.com")
 
-	viper.SetEnvPrefix("GHET") // Set the environment variable prefix, GHET (GitHub Extension Template) is just an example
+	viper.SetEnvPrefix("GHMV") // Set the environment variable prefix, GHMV (GitHub Migration Validator)
 
 	// Read in environment variables that match
 	viper.AutomaticEnv()
