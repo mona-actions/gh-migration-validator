@@ -385,3 +385,83 @@ func (api *GitHubAPI) GetPRCounts(clientType ClientType, owner, name string) (*P
 
 	return counts, nil
 }
+
+// GetTagCount retrieves the total count of tags for a repository using GraphQL
+func (api *GitHubAPI) GetTagCount(clientType ClientType, owner, name string) (int, error) {
+	ctx := context.Background()
+
+	var query struct {
+		Repository struct {
+			NameWithOwner string
+			Refs          struct {
+				TotalCount int
+			} `graphql:"refs(refPrefix: \"refs/tags/\")"`
+		} `graphql:"repository(owner: $owner, name: $name)"`
+	}
+
+	variables := map[string]interface{}{
+		"owner": githubv4.String(owner),
+		"name":  githubv4.String(name),
+	}
+
+	var client *RateLimitAwareGraphQLClient
+	var clientName string
+
+	switch clientType {
+	case SourceClient:
+		client = api.sourceGraphClient
+		clientName = "source"
+	case TargetClient:
+		client = api.targetGraphClient
+		clientName = "target"
+	default:
+		return 0, fmt.Errorf("invalid client type")
+	}
+
+	err := client.Query(ctx, &query, variables)
+	if err != nil {
+		return 0, fmt.Errorf("failed to query %s repository tag count: %v", clientName, err)
+	}
+
+	return query.Repository.Refs.TotalCount, nil
+}
+
+// GetReleaseCount retrieves the total count of releases for a repository using GraphQL
+func (api *GitHubAPI) GetReleaseCount(clientType ClientType, owner, name string) (int, error) {
+	ctx := context.Background()
+
+	var query struct {
+		Repository struct {
+			NameWithOwner string
+			Releases      struct {
+				TotalCount int
+			}
+		} `graphql:"repository(owner: $owner, name: $name)"`
+	}
+
+	variables := map[string]interface{}{
+		"owner": githubv4.String(owner),
+		"name":  githubv4.String(name),
+	}
+
+	var client *RateLimitAwareGraphQLClient
+	var clientName string
+
+	switch clientType {
+	case SourceClient:
+		client = api.sourceGraphClient
+		clientName = "source"
+	case TargetClient:
+		client = api.targetGraphClient
+		clientName = "target"
+	default:
+		return 0, fmt.Errorf("invalid client type")
+	}
+
+	err := client.Query(ctx, &query, variables)
+	if err != nil {
+		return 0, fmt.Errorf("failed to query %s repository release count: %v", clientName, err)
+	}
+
+	return query.Repository.Releases.TotalCount, nil
+}
