@@ -6,6 +6,7 @@ package cmd
 import (
 	"fmt"
 	"mona-actions/gh-migration-validator/internal/api"
+	"mona-actions/gh-migration-validator/internal/validator"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -30,13 +31,15 @@ between source and target organizations.`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	Run: func(cmd *cobra.Command, args []string) {
-
 		// Get parameters
 		sourceOrganization := cmd.Flag("source-organization").Value.String()
 		targetOrganization := cmd.Flag("target-organization").Value.String()
 		sourceToken := cmd.Flag("source-token").Value.String()
 		targetToken := cmd.Flag("target-token").Value.String()
 		ghHostname := cmd.Flag("source-hostname").Value.String()
+		sourceRepo := cmd.Flag("source-repo").Value.String()
+		targetRepo := cmd.Flag("target-repo").Value.String()
+		repoList := cmd.Flag("repo-list").Value.String()
 
 		// Set ENV variables
 		os.Setenv("GHMV_SOURCE_ORGANIZATION", sourceOrganization)
@@ -44,6 +47,9 @@ between source and target organizations.`,
 		os.Setenv("GHMV_SOURCE_TOKEN", sourceToken)
 		os.Setenv("GHMV_TARGET_TOKEN", targetToken)
 		os.Setenv("GHMV_SOURCE_HOSTNAME", ghHostname)
+		os.Setenv("GHMV_SOURCE_REPO", sourceRepo)
+		os.Setenv("GHMV_TARGET_REPO", targetRepo)
+		os.Setenv("GHMV_REPO_LIST", repoList)
 
 		// Bind ENV variables in Viper
 		viper.BindEnv("SOURCE_ORGANIZATION")
@@ -57,47 +63,24 @@ between source and target organizations.`,
 		viper.BindEnv("TARGET_PRIVATE_KEY")
 		viper.BindEnv("TARGET_APP_ID")
 		viper.BindEnv("TARGET_INSTALLATION_ID")
+		viper.BindEnv("SOURCE_REPO")
+		viper.BindEnv("TARGET_REPO")
+		viper.BindEnv("REPO_LIST")
+
+		// Validate required variables and configuration
+		if err := checkVars(); err != nil {
+			fmt.Printf("Configuration validation failed: %v\n", err)
+			os.Exit(1)
+		}
 
 		initializeAPI()
 
-		// Below are just examples of how to use the API
-		// You can create other functions that encapsulate the API calls to make the code cleaner
-		// and easier to read.
-		// You can also create a new file for each function and import it here
-		// to keep the code organized.
-
-		fmt.Println("Retrieving source user with REST API")
-		sourceUser, err := ghAPI.GetSourceAuthenticatedUser()
-		if err != nil {
-			fmt.Println("Error retrieving source user with REST API")
-			fmt.Println(err)
+		// Create validator and run migration validation
+		migrationValidator := validator.New(ghAPI)
+		if err := migrationValidator.ValidateMigration(); err != nil {
+			fmt.Printf("Migration validation failed: %v\n", err)
+			os.Exit(1)
 		}
-		fmt.Println("Source user: ", sourceUser.GetLogin())
-
-		fmt.Println("Retrieiving target user with REST API")
-
-		targetuser, err := ghAPI.GetTargetAuthenticatedUser()
-		if err != nil {
-			fmt.Println("Error retrieving target user with REST API")
-			fmt.Println(err)
-		}
-		fmt.Println("Target user: ", targetuser.GetLogin())
-
-		fmt.Println("Retrieiving source user with GraphQL API")
-		sourceGQLuser, err := ghAPI.GetSourceGraphQLAuthenticatedUser()
-		if err != nil {
-			fmt.Println("Error retrieving source user with GraphQL API")
-			fmt.Println(err)
-		}
-		fmt.Println("Source graphql user: ", sourceGQLuser.GetLogin())
-
-		fmt.Println("Retrieiving target user with GraphQL API")
-		targetGQLUser, err := ghAPI.GetTargetGraphQLAuthenticatedUser()
-		if err != nil {
-			fmt.Println("Error retrieving target user with GraphQL API")
-			fmt.Println(err)
-		}
-		fmt.Println("Target graphql user: ", targetGQLUser.GetLogin())
 	},
 }
 
@@ -121,21 +104,66 @@ func init() {
 	// when this action is called directly.
 
 	rootCmd.Flags().StringP("source-organization", "s", "", "Source Organization to sync teams from")
-	//rootCmd.MarkFlagRequired("source-organization")
+	rootCmd.MarkFlagRequired("source-organization")
 
 	rootCmd.Flags().StringP("target-organization", "t", "", "Target Organization to sync teams from")
-	//rootCmd.MarkFlagRequired("target-organization")
+	rootCmd.MarkFlagRequired("target-organization")
 
 	rootCmd.Flags().StringP("source-token", "a", "", "Source Organization GitHub token. Scopes: read:org, read:user, user:email")
-	rootCmd.MarkFlagRequired("source-token")
+	//rootCmd.MarkFlagRequired("source-token")
 
 	rootCmd.Flags().StringP("target-token", "b", "", "Target Organization GitHub token. Scopes: admin:org")
-	rootCmd.MarkFlagRequired("target-token")
+	//rootCmd.MarkFlagRequired("target-token")
 
 	rootCmd.Flags().StringP("source-hostname", "u", "", "GitHub Enterprise source hostname url (optional) Ex. https://github.example.com")
+
+	rootCmd.Flags().StringP("source-repo", "sr", "", "Source repository to verify against")
+
+	rootCmd.Flags().StringP("target-repo", "tr", "", "Target repository to verify against")
+
+	rootCmd.Flags().StringP("repo-list", "l", "", "Path to a file containing a list of repositories to validate (one per line)")
 
 	viper.SetEnvPrefix("GHMV") // Set the environment variable prefix, GHMV (GitHub Migration Validator)
 
 	// Read in environment variables that match
 	viper.AutomaticEnv()
+}
+
+func checkVars() error {
+	// Check for tokens - they can be provided via flags or environment variables
+	sourceToken := viper.GetString("SOURCE_TOKEN")
+	targetToken := viper.GetString("TARGET_TOKEN")
+
+	if sourceToken == "" {
+		return fmt.Errorf("source token is required. Set it via --source-token flag or GHMV_SOURCE_TOKEN environment variable")
+	}
+
+	if targetToken == "" {
+		return fmt.Errorf("target token is required. Set it via --target-token flag or GHMV_TARGET_TOKEN environment variable")
+	}
+
+	// Check repository configuration
+	sourceRepo := viper.GetString("SOURCE_REPO")
+	targetRepo := viper.GetString("TARGET_REPO")
+	repoListFile := viper.GetString("REPO_LIST")
+
+	// If repo list file is provided, we don't need individual source/target repos
+	if repoListFile != "" {
+		// Validate that the repo list file exists
+		if _, err := os.Stat(repoListFile); os.IsNotExist(err) {
+			return fmt.Errorf("repo list file does not exist: %s", repoListFile)
+		}
+		return nil
+	}
+
+	// If no repo list file, we need both source and target repositories
+	if sourceRepo == "" {
+		return fmt.Errorf("source repository is required when not using a repo list file. Set it via --source-repo flag")
+	}
+
+	if targetRepo == "" {
+		return fmt.Errorf("target repository is required when not using a repo list file. Set it via --target-repo flag")
+	}
+
+	return nil
 }
