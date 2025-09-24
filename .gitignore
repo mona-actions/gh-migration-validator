@@ -33,3 +33,6 @@ scratch
 *.log
 .vscode
 .env
+
+# binary
+gh-migration-validator

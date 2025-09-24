@@ -77,7 +77,7 @@ between source and target organizations.`,
 
 		// Create validator and run migration validation
 		migrationValidator := validator.New(ghAPI)
-		if err := migrationValidator.ValidateMigration(); err != nil {
+		if err := migrationValidator.ValidateMigration(sourceOrganization, sourceRepo, targetOrganization, targetRepo); err != nil {
 			fmt.Printf("Migration validation failed: %v\n", err)
 			os.Exit(1)
 		}
@@ -117,9 +117,9 @@ func init() {
 
 	rootCmd.Flags().StringP("source-hostname", "u", "", "GitHub Enterprise source hostname url (optional) Ex. https://github.example.com")
 
-	rootCmd.Flags().StringP("source-repo", "sr", "", "Source repository to verify against")
+	rootCmd.Flags().StringP("source-repo", "", "", "Source repository name to verify against (just the repo name, not owner/repo)")
 
-	rootCmd.Flags().StringP("target-repo", "tr", "", "Target repository to verify against")
+	rootCmd.Flags().StringP("target-repo", "", "", "Target repository name to verify against (just the repo name, not owner/repo)")
 
 	rootCmd.Flags().StringP("repo-list", "l", "", "Path to a file containing a list of repositories to validate (one per line)")
 
