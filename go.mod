@@ -8,8 +8,8 @@ require (
 	github.com/gofri/go-github-ratelimit v1.1.0
 	github.com/google/go-github/v62 v62.0.0
 	github.com/jferrl/go-githubauth v1.1.1
-	github.com/mona-actions/gh-migrate-teams v0.11.0
 	github.com/shurcooL/githubv4 v0.0.0-20240727222349-48295856cce7
+	github.com/spf13/cobra v1.9.1
 	github.com/spf13/viper v1.19.0
 	golang.org/x/oauth2 v0.27.0
 )
@@ -30,7 +30,6 @@ require (
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.11.0 // indirect
 	github.com/spf13/cast v1.6.0 // indirect
-	github.com/spf13/cobra v1.9.1 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	go.uber.org/atomic v1.9.0 // indirect

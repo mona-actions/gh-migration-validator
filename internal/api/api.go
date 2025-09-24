@@ -26,6 +26,14 @@ type ClientConfig struct {
 	InstallationID int64
 }
 
+// ClientType represents the type of GitHub client to use
+type ClientType int
+
+const (
+	SourceClient ClientType = iota
+	TargetClient
+)
+
 // GitHubAPI holds the clients for interacting with GitHub
 type GitHubAPI struct {
 	sourceClient      *github.Client
@@ -273,4 +281,107 @@ func (api *GitHubAPI) GetTargetGraphQLAuthenticatedUser() (*github.User, error) 
 	}
 
 	return user, nil
+}
+
+// GetIssueCount retrieves the total count of issues for a repository using GraphQL
+func (api *GitHubAPI) GetIssueCount(clientType ClientType, owner, name string) (int, error) {
+	ctx := context.Background()
+
+	var query struct {
+		Repository struct {
+			NameWithOwner string
+			Issues        struct {
+				TotalCount int
+			}
+		} `graphql:"repository(owner: $owner, name: $name)"`
+	}
+
+	variables := map[string]interface{}{
+		"owner": githubv4.String(owner),
+		"name":  githubv4.String(name),
+	}
+
+	var client *RateLimitAwareGraphQLClient
+	var clientName string
+
+	switch clientType {
+	case SourceClient:
+		client = api.sourceGraphClient
+		clientName = "source"
+	case TargetClient:
+		client = api.targetGraphClient
+		clientName = "target"
+	default:
+		return 0, fmt.Errorf("invalid client type")
+	}
+
+	err := client.Query(ctx, &query, variables)
+	if err != nil {
+		return 0, fmt.Errorf("failed to query %s repository issue count: %v", clientName, err)
+	}
+
+	return query.Repository.Issues.TotalCount, nil
+}
+
+// PRCounts holds the counts for different pull request states
+type PRCounts struct {
+	Open   int
+	Merged int
+	Closed int
+	Total  int
+}
+
+// GetPRCounts retrieves the counts of pull requests by state for a repository using GraphQL
+func (api *GitHubAPI) GetPRCounts(clientType ClientType, owner, name string) (*PRCounts, error) {
+	ctx := context.Background()
+
+	var query struct {
+		Repository struct {
+			NameWithOwner string
+			OpenPRs       struct {
+				TotalCount int
+			} `graphql:"openPRs: pullRequests(states: OPEN)"`
+			MergedPRs struct {
+				TotalCount int
+			} `graphql:"mergedPRs: pullRequests(states: MERGED)"`
+			ClosedPRs struct {
+				TotalCount int
+			} `graphql:"closedPRs: pullRequests(states: CLOSED)"`
+		} `graphql:"repository(owner: $owner, name: $name)"`
+	}
+
+	variables := map[string]interface{}{
+		"owner": githubv4.String(owner),
+		"name":  githubv4.String(name),
+	}
+
+	var client *RateLimitAwareGraphQLClient
+	var clientName string
+
+	switch clientType {
+	case SourceClient:
+		client = api.sourceGraphClient
+		clientName = "source"
+	case TargetClient:
+		client = api.targetGraphClient
+		clientName = "target"
+	default:
+		return nil, fmt.Errorf("invalid client type")
+	}
+
+	err := client.Query(ctx, &query, variables)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query %s repository PR counts: %v", clientName, err)
+	}
+
+	counts := &PRCounts{
+		Open:   query.Repository.OpenPRs.TotalCount,
+		Merged: query.Repository.MergedPRs.TotalCount,
+		Closed: query.Repository.ClosedPRs.TotalCount,
+	}
+
+	// Calculate total count
+	counts.Total = counts.Open + counts.Merged + counts.Closed
+
+	return counts, nil
 }
