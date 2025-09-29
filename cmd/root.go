@@ -31,7 +31,7 @@ between source and target organizations.`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	Run: func(cmd *cobra.Command, args []string) {
-		// Get parameters
+		// Get parameters from flags
 		sourceOrganization := cmd.Flag("source-organization").Value.String()
 		targetOrganization := cmd.Flag("target-organization").Value.String()
 		sourceToken := cmd.Flag("source-token").Value.String()
@@ -41,15 +41,31 @@ between source and target organizations.`,
 		targetRepo := cmd.Flag("target-repo").Value.String()
 		repoList := cmd.Flag("repo-list").Value.String()
 
-		// Set ENV variables
-		os.Setenv("GHMV_SOURCE_ORGANIZATION", sourceOrganization)
-		os.Setenv("GHMV_TARGET_ORGANIZATION", targetOrganization)
-		os.Setenv("GHMV_SOURCE_TOKEN", sourceToken)
-		os.Setenv("GHMV_TARGET_TOKEN", targetToken)
-		os.Setenv("GHMV_SOURCE_HOSTNAME", ghHostname)
-		os.Setenv("GHMV_SOURCE_REPO", sourceRepo)
-		os.Setenv("GHMV_TARGET_REPO", targetRepo)
-		os.Setenv("GHMV_REPO_LIST", repoList)
+		// Only set ENV variables if flag values are provided (not empty)
+		if sourceOrganization != "" {
+			os.Setenv("GHMV_SOURCE_ORGANIZATION", sourceOrganization)
+		}
+		if targetOrganization != "" {
+			os.Setenv("GHMV_TARGET_ORGANIZATION", targetOrganization)
+		}
+		if sourceToken != "" {
+			os.Setenv("GHMV_SOURCE_TOKEN", sourceToken)
+		}
+		if targetToken != "" {
+			os.Setenv("GHMV_TARGET_TOKEN", targetToken)
+		}
+		if ghHostname != "" {
+			os.Setenv("GHMV_SOURCE_HOSTNAME", ghHostname)
+		}
+		if sourceRepo != "" {
+			os.Setenv("GHMV_SOURCE_REPO", sourceRepo)
+		}
+		if targetRepo != "" {
+			os.Setenv("GHMV_TARGET_REPO", targetRepo)
+		}
+		if repoList != "" {
+			os.Setenv("GHMV_REPO_LIST", repoList)
+		}
 
 		// Bind ENV variables in Viper
 		viper.BindEnv("SOURCE_ORGANIZATION")

@@ -9,12 +9,14 @@ import (
 
 // RepositoryData holds all the metrics for a repository
 type RepositoryData struct {
-	Owner    string
-	Name     string
-	Issues   int
-	PRs      *api.PRCounts
-	Tags     int
-	Releases int
+	Owner           string
+	Name            string
+	Issues          int
+	PRs             *api.PRCounts
+	Tags            int
+	Releases        int
+	CommitCount     int
+	LatestCommitSHA string
 }
 
 // ValidationResult represents the comparison between source and target
@@ -119,6 +121,26 @@ func (mv *MigrationValidator) RetrieveSource(owner, name string) error {
 	mv.SourceData.Releases = releases
 	spinner.Success("Releases fetched successfully")
 
+	// Get commit count
+	spinner, _ = pterm.DefaultSpinner.Start("Fetching commit count...")
+	commitCount, err := mv.api.GetCommitCount(api.SourceClient, owner, name)
+	if err != nil {
+		spinner.Fail("Failed to fetch commit count")
+		return fmt.Errorf("failed to get source commit count: %w", err)
+	}
+	mv.SourceData.CommitCount = commitCount
+	spinner.Success("Commit count fetched successfully")
+
+	// Get latest commit hash
+	spinner, _ = pterm.DefaultSpinner.Start("Fetching latest commit hash...")
+	latestCommitSHA, err := mv.api.GetLatestCommitHash(api.SourceClient, owner, name)
+	if err != nil {
+		spinner.Fail("Failed to fetch latest commit hash")
+		return fmt.Errorf("failed to get source latest commit hash: %w", err)
+	}
+	mv.SourceData.LatestCommitSHA = latestCommitSHA
+	spinner.Success("Latest commit hash fetched successfully")
+
 	fmt.Printf("Source data retrieved successfully!\n")
 	return nil
 }
@@ -169,6 +191,26 @@ func (mv *MigrationValidator) RetrieveTarget(owner, name string) error {
 	}
 	mv.TargetData.Releases = releases
 	spinner.Success("Releases fetched successfully")
+
+	// Get commit count
+	spinner, _ = pterm.DefaultSpinner.Start("Fetching commit count...")
+	commitCount, err := mv.api.GetCommitCount(api.TargetClient, owner, name)
+	if err != nil {
+		spinner.Fail("Failed to fetch commit count")
+		return fmt.Errorf("failed to get target commit count: %w", err)
+	}
+	mv.TargetData.CommitCount = commitCount
+	spinner.Success("Commit count fetched successfully")
+
+	// Get latest commit hash
+	spinner, _ = pterm.DefaultSpinner.Start("Fetching latest commit hash...")
+	latestCommitSHA, err := mv.api.GetLatestCommitHash(api.TargetClient, owner, name)
+	if err != nil {
+		spinner.Fail("Failed to fetch latest commit hash")
+		return fmt.Errorf("failed to get target latest commit hash: %w", err)
+	}
+	mv.TargetData.LatestCommitSHA = latestCommitSHA
+	spinner.Success("Latest commit hash fetched successfully")
 
 	fmt.Printf("Target data retrieved successfully!\n")
 	return nil
@@ -281,6 +323,37 @@ func (mv *MigrationValidator) ValidateRepositoryData() []ValidationResult {
 		TargetVal:  mv.TargetData.Releases,
 		Status:     releaseStatus,
 		Difference: releaseDiff,
+	})
+
+	// Compare Commit Count
+	commitDiff := mv.SourceData.CommitCount - mv.TargetData.CommitCount
+	commitStatus := "✅ PASS"
+	if commitDiff > 0 {
+		commitStatus = "❌ FAIL"
+	} else if commitDiff < 0 {
+		commitStatus = "⚠️ WARN"
+	}
+
+	results = append(results, ValidationResult{
+		Metric:     "Commits",
+		SourceVal:  mv.SourceData.CommitCount,
+		TargetVal:  mv.TargetData.CommitCount,
+		Status:     commitStatus,
+		Difference: commitDiff,
+	})
+
+	// Compare Latest Commit SHA
+	latestCommitStatus := "✅ PASS"
+	if mv.SourceData.LatestCommitSHA != mv.TargetData.LatestCommitSHA {
+		latestCommitStatus = "❌ FAIL"
+	}
+
+	results = append(results, ValidationResult{
+		Metric:     "Latest Commit SHA",
+		SourceVal:  mv.SourceData.LatestCommitSHA,
+		TargetVal:  mv.TargetData.LatestCommitSHA,
+		Status:     latestCommitStatus,
+		Difference: 0, // Not applicable for SHA comparison
 	})
 
 	return results
