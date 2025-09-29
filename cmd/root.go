@@ -39,7 +39,8 @@ between source and target organizations.`,
 		ghHostname := cmd.Flag("source-hostname").Value.String()
 		sourceRepo := cmd.Flag("source-repo").Value.String()
 		targetRepo := cmd.Flag("target-repo").Value.String()
-		repoList := cmd.Flag("repo-list").Value.String()
+		// repoList := cmd.Flag("repo-list").Value.String()
+		markdownTable := cmd.Flag("markdown-table").Value.String()
 
 		// Only set ENV variables if flag values are provided (not empty)
 		if sourceOrganization != "" {
@@ -63,8 +64,11 @@ between source and target organizations.`,
 		if targetRepo != "" {
 			os.Setenv("GHMV_TARGET_REPO", targetRepo)
 		}
-		if repoList != "" {
-			os.Setenv("GHMV_REPO_LIST", repoList)
+		// if repoList != "" {
+		// 	os.Setenv("GHMV_REPO_LIST", repoList)
+		// }
+		if markdownTable != "" {
+			os.Setenv("GHMV_MARKDOWN_TABLE", markdownTable)
 		}
 
 		// Bind ENV variables in Viper
@@ -81,7 +85,8 @@ between source and target organizations.`,
 		viper.BindEnv("TARGET_INSTALLATION_ID")
 		viper.BindEnv("SOURCE_REPO")
 		viper.BindEnv("TARGET_REPO")
-		viper.BindEnv("REPO_LIST")
+		// viper.BindEnv("REPO_LIST")
+		viper.BindEnv("MARKDOWN_TABLE")
 
 		// Validate required variables and configuration
 		if err := checkVars(); err != nil {
@@ -93,10 +98,14 @@ between source and target organizations.`,
 
 		// Create validator and run migration validation
 		migrationValidator := validator.New(ghAPI)
-		if err := migrationValidator.ValidateMigration(sourceOrganization, sourceRepo, targetOrganization, targetRepo); err != nil {
+		results, err := migrationValidator.ValidateMigration(sourceOrganization, sourceRepo, targetOrganization, targetRepo)
+		if err != nil {
 			fmt.Printf("Migration validation failed: %v\n", err)
 			os.Exit(1)
 		}
+
+		// Print the validation results - always report what we found
+		migrationValidator.PrintValidationResults(results)
 	},
 }
 
@@ -137,7 +146,10 @@ func init() {
 
 	rootCmd.Flags().StringP("target-repo", "", "", "Target repository name to verify against (just the repo name, not owner/repo)")
 
-	rootCmd.Flags().StringP("repo-list", "l", "", "Path to a file containing a list of repositories to validate (one per line)")
+	// rootCmd.Flags().StringP("repo-list", "l", "", "Path to a file containing a list of repositories to validate (one per line)")
+
+	//boolean flag for printing the markdown table
+	rootCmd.Flags().BoolP("markdown-table", "m", false, "Print results as a markdown table")
 
 	viper.SetEnvPrefix("GHMV") // Set the environment variable prefix, GHMV (GitHub Migration Validator)
 
@@ -161,24 +173,24 @@ func checkVars() error {
 	// Check repository configuration
 	sourceRepo := viper.GetString("SOURCE_REPO")
 	targetRepo := viper.GetString("TARGET_REPO")
-	repoListFile := viper.GetString("REPO_LIST")
+	// repoListFile := viper.GetString("REPO_LIST")
 
 	// If repo list file is provided, we don't need individual source/target repos
-	if repoListFile != "" {
-		// Validate that the repo list file exists
-		if _, err := os.Stat(repoListFile); os.IsNotExist(err) {
-			return fmt.Errorf("repo list file does not exist: %s", repoListFile)
-		}
-		return nil
-	}
+	// if repoListFile != "" {
+	// 	// Validate that the repo list file exists
+	// 	if _, err := os.Stat(repoListFile); os.IsNotExist(err) {
+	// 		return fmt.Errorf("repo list file does not exist: %s", repoListFile)
+	// 	}
+	// 	return nil
+	// }
 
-	// If no repo list file, we need both source and target repositories
+	// We need both source and target repositories
 	if sourceRepo == "" {
-		return fmt.Errorf("source repository is required when not using a repo list file. Set it via --source-repo flag")
+		return fmt.Errorf("source repository is required. Set it via --source-repo flag")
 	}
 
 	if targetRepo == "" {
-		return fmt.Errorf("target repository is required when not using a repo list file. Set it via --target-repo flag")
+		return fmt.Errorf("target repository is required. Set it via --target-repo flag")
 	}
 
 	return nil

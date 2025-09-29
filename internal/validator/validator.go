@@ -5,6 +5,7 @@ import (
 	"mona-actions/gh-migration-validator/internal/api"
 
 	"github.com/pterm/pterm"
+	"github.com/spf13/viper"
 )
 
 // RepositoryData holds all the metrics for a repository
@@ -44,34 +45,26 @@ func New(githubAPI *api.GitHubAPI) *MigrationValidator {
 	}
 }
 
-// ValidateMigration performs the migration validation logic
-func (mv *MigrationValidator) ValidateMigration(sourceOwner, sourceRepo, targetOwner, targetRepo string) error {
+// ValidateMigration performs the migration validation logic and returns results
+func (mv *MigrationValidator) ValidateMigration(sourceOwner, sourceRepo, targetOwner, targetRepo string) ([]ValidationResult, error) {
 	fmt.Println("Starting migration validation...")
 
 	// Retrieve source repository data
 	if err := mv.RetrieveSource(sourceOwner, sourceRepo); err != nil {
-		return fmt.Errorf("failed to retrieve source data: %w", err)
+		return nil, fmt.Errorf("failed to retrieve source data: %w", err)
 	}
 
 	// Retrieve target repository data
 	if err := mv.RetrieveTarget(targetOwner, targetRepo); err != nil {
-		return fmt.Errorf("failed to retrieve target data: %w", err)
+		return nil, fmt.Errorf("failed to retrieve target data: %w", err)
 	}
 
 	// Compare and validate the data
-	fmt.Println("\n Validating migration data")
+	fmt.Println("\nValidating migration data...")
 	results := mv.ValidateRepositoryData()
-	mv.PrintValidationResults(results)
 
-	// Check if there were any failures
-	for _, result := range results {
-		if result.Status == "❌ FAIL" {
-			return fmt.Errorf("migration validation failed - some data is missing in target repository")
-		}
-	}
-
-	fmt.Println("\nMigration validation completed successfully!")
-	return nil
+	fmt.Println("Migration validation completed!")
+	return results, nil
 }
 
 // RetrieveSource retrieves all repository data from the source repository
@@ -361,28 +354,52 @@ func (mv *MigrationValidator) ValidateRepositoryData() []ValidationResult {
 
 // PrintValidationResults prints a formatted report of the validation results
 func (mv *MigrationValidator) PrintValidationResults(results []ValidationResult) {
-	fmt.Println("\n📊 Migration Validation Report")
-	fmt.Println("=" + fmt.Sprintf("%s", "======================================="))
-	fmt.Printf("Source: %s/%s\n", mv.SourceData.Owner, mv.SourceData.Name)
-	fmt.Printf("Target: %s/%s\n", mv.TargetData.Owner, mv.TargetData.Name)
-	fmt.Println("=" + fmt.Sprintf("%s", "======================================="))
+	// Print header
+	pterm.DefaultHeader.WithFullWidth().WithBackgroundStyle(pterm.NewStyle(pterm.BgBlue)).WithTextStyle(pterm.NewStyle(pterm.FgWhite)).Println("📊 Migration Validation Report")
 
-	for _, result := range results {
-		fmt.Printf("%-25s | %s | Source: %v | Target: %v",
-			result.Metric,
-			result.Status,
-			result.SourceVal,
-			result.TargetVal)
+	// Print source/target info
+	sourceInfo := pterm.DefaultBox.WithTitle("Source Repository").WithTitleTopLeft().Sprint(fmt.Sprintf("Repository: %s/%s", mv.SourceData.Owner, mv.SourceData.Name))
+	targetInfo := pterm.DefaultBox.WithTitle("Target Repository").WithTitleTopLeft().Sprint(fmt.Sprintf("Repository: %s/%s", mv.TargetData.Owner, mv.TargetData.Name))
 
-		if result.Difference > 0 {
-			fmt.Printf(" | Missing: %d", result.Difference)
-		} else if result.Difference < 0 {
-			fmt.Printf(" | Extra: %d", -result.Difference)
-		}
-		fmt.Println()
+	pterm.DefaultPanel.WithPanels([][]pterm.Panel{
+		{{Data: sourceInfo}, {Data: targetInfo}},
+	}).Render()
+
+	fmt.Println() // Add spacing
+
+	// Create table data
+	tableData := [][]string{
+		{"Metric", "Status", "Source Value", "Target Value", "Difference"},
 	}
 
-	// Summary
+	for _, result := range results {
+		diffStr := ""
+		if result.Difference > 0 {
+			diffStr = fmt.Sprintf("Missing: %d", result.Difference)
+		} else if result.Difference < 0 {
+			diffStr = fmt.Sprintf("Extra: %d", -result.Difference)
+		} else if result.Metric == "Latest Commit SHA" {
+			diffStr = "N/A"
+		} else {
+			diffStr = "Perfect match"
+		}
+
+		tableData = append(tableData, []string{
+			result.Metric,
+			result.Status,
+			fmt.Sprintf("%v", result.SourceVal),
+			fmt.Sprintf("%v", result.TargetVal),
+			diffStr,
+		})
+	}
+
+	// Create and display the table
+	table := pterm.DefaultTable.WithHasHeader().WithData(tableData)
+	table.Render()
+
+	fmt.Println() // Add spacing
+
+	// Calculate summary
 	passCount := 0
 	failCount := 0
 	warnCount := 0
@@ -398,14 +415,94 @@ func (mv *MigrationValidator) PrintValidationResults(results []ValidationResult)
 		}
 	}
 
-	fmt.Println("=" + fmt.Sprintf("%s", "======================================="))
-	fmt.Printf("Summary: %d passed, %d failed, %d warnings\n", passCount, failCount, warnCount)
+	// Print summary with colored boxes
+	summaryData := []pterm.BulletListItem{
+		{Level: 0, Text: fmt.Sprintf("Passed: %d", passCount), TextStyle: pterm.NewStyle(pterm.FgGreen)},
+		{Level: 0, Text: fmt.Sprintf("Failed: %d", failCount), TextStyle: pterm.NewStyle(pterm.FgRed)},
+		{Level: 0, Text: fmt.Sprintf("Warnings: %d", warnCount), TextStyle: pterm.NewStyle(pterm.FgYellow)},
+	}
+
+	pterm.DefaultBulletList.WithItems(summaryData).WithBullet("📊").Render()
+
+	fmt.Println() // Add spacing
+
+	// Final status with prominent styling
+	if failCount > 0 {
+		pterm.Error.Println("❌ Migration validation FAILED - Some data is missing in target")
+	} else if warnCount > 0 {
+		pterm.Warning.Println("⚠️ Migration validation completed with WARNINGS - Target has more data than source")
+	} else {
+		pterm.Success.Println("✅ Migration validation PASSED - All data matches!")
+	}
+
+	fmt.Println() // Add spacing
+	if viper.GetBool("MARKDOWN_TABLE") {
+		mv.PrintMarkdownTable(results)
+	}
+}
+
+// PrintMarkdownTable prints a markdown-formatted table for easy copy/paste
+func (mv *MigrationValidator) PrintMarkdownTable(results []ValidationResult) {
+	pterm.DefaultSection.Println("📋 Markdown Table (Copy-Paste Ready)")
+
+	fmt.Println("```markdown")
+	fmt.Printf("# Migration Validation Report\n\n")
+	fmt.Printf("**Source:** `%s/%s`  \n", mv.SourceData.Owner, mv.SourceData.Name)
+	fmt.Printf("**Target:** `%s/%s`  \n\n", mv.TargetData.Owner, mv.TargetData.Name)
+
+	fmt.Println("| Metric | Status | Source Value | Target Value | Difference |")
+	fmt.Println("|--------|--------|--------------|--------------|------------|")
+
+	for _, result := range results {
+		diffStr := ""
+		if result.Difference > 0 {
+			diffStr = fmt.Sprintf("Missing: %d", result.Difference)
+		} else if result.Difference < 0 {
+			diffStr = fmt.Sprintf("Extra: %d", -result.Difference)
+		} else if result.Metric == "Latest Commit SHA" {
+			diffStr = "N/A"
+		} else {
+			diffStr = "Perfect match"
+		}
+
+		fmt.Printf("| %s | %s | %v | %v | %s |\n",
+			result.Metric,
+			result.Status,
+			result.SourceVal,
+			result.TargetVal,
+			diffStr)
+	}
+
+	// Calculate summary for markdown
+	passCount := 0
+	failCount := 0
+	warnCount := 0
+
+	for _, result := range results {
+		switch result.Status {
+		case "✅ PASS":
+			passCount++
+		case "❌ FAIL":
+			failCount++
+		case "⚠️ WARN":
+			warnCount++
+		}
+	}
+
+	fmt.Printf("\n## Summary\n\n")
+	fmt.Printf("- **Passed:** %d  \n", passCount)
+	fmt.Printf("- **Failed:** %d  \n", failCount)
+	fmt.Printf("- **Warnings:** %d  \n\n", warnCount)
 
 	if failCount > 0 {
-		fmt.Println("❌ Migration validation FAILED - Some data is missing in target")
+		fmt.Printf("**Result:** ❌ Migration validation FAILED - Some data is missing in target\n")
 	} else if warnCount > 0 {
-		fmt.Println("⚠️ Migration validation completed with WARNINGS - Target has more data than source")
+		fmt.Printf("**Result:** ⚠️ Migration validation completed with WARNINGS - Target has more data than source\n")
 	} else {
-		fmt.Println("✅ Migration validation PASSED - All data matches!")
+		fmt.Printf("**Result:** ✅ Migration validation PASSED - All data matches!\n")
 	}
+
+	fmt.Println("```")
+
+	pterm.Info.Println("💡 Tip: You can select and copy the entire markdown section above to paste into documentation, issues, or pull requests!")
 }
