@@ -5,7 +5,8 @@ package cmd
 
 import (
 	"fmt"
-	"mona-actions/gh-extension-template/internal/api"
+	"mona-actions/gh-migration-validator/internal/api"
+	"mona-actions/gh-migration-validator/internal/validator"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -20,31 +21,51 @@ func initializeAPI() {
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
-	Use:   "gh-extension-template",
-	Short: "A brief description of your cli extension",
-	Long: `A longer description that spans multiple lines and likely contains
-examples and usage of using your application. For example:
+	Use:   "gh-migration-validator",
+	Short: "Validate GitHub organization migrations",
+	Long: `A GitHub CLI extension for validating GitHub organization migrations.
 
-this CLI extension is used for....
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+This tool helps ensure that your migration from one GitHub organization to another
+has been completed successfully by comparing certain repositories resources
+between source and target organizations.`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	Run: func(cmd *cobra.Command, args []string) {
-
-		// Get parameters
+		// Get parameters from flags
 		sourceOrganization := cmd.Flag("source-organization").Value.String()
 		targetOrganization := cmd.Flag("target-organization").Value.String()
 		sourceToken := cmd.Flag("source-token").Value.String()
 		targetToken := cmd.Flag("target-token").Value.String()
 		ghHostname := cmd.Flag("source-hostname").Value.String()
+		sourceRepo := cmd.Flag("source-repo").Value.String()
+		targetRepo := cmd.Flag("target-repo").Value.String()
+		markdownTable := cmd.Flag("markdown-table").Value.String()
 
-		// Set ENV variables
-		os.Setenv("GHET_SOURCE_ORGANIZATION", sourceOrganization)
-		os.Setenv("GHET_TARGET_ORGANIZATION", targetOrganization)
-		os.Setenv("GHET_SOURCE_TOKEN", sourceToken)
-		os.Setenv("GHET_TARGET_TOKEN", targetToken)
-		os.Setenv("GHET_SOURCE_HOSTNAME", ghHostname)
+		// Only set ENV variables if flag values are provided (not empty)
+		if sourceOrganization != "" {
+			os.Setenv("GHMV_SOURCE_ORGANIZATION", sourceOrganization)
+		}
+		if targetOrganization != "" {
+			os.Setenv("GHMV_TARGET_ORGANIZATION", targetOrganization)
+		}
+		if sourceToken != "" {
+			os.Setenv("GHMV_SOURCE_TOKEN", sourceToken)
+		}
+		if targetToken != "" {
+			os.Setenv("GHMV_TARGET_TOKEN", targetToken)
+		}
+		if ghHostname != "" {
+			os.Setenv("GHMV_SOURCE_HOSTNAME", ghHostname)
+		}
+		if sourceRepo != "" {
+			os.Setenv("GHMV_SOURCE_REPO", sourceRepo)
+		}
+		if targetRepo != "" {
+			os.Setenv("GHMV_TARGET_REPO", targetRepo)
+		}
+		if markdownTable != "" {
+			os.Setenv("GHMV_MARKDOWN_TABLE", markdownTable)
+		}
 
 		// Bind ENV variables in Viper
 		viper.BindEnv("SOURCE_ORGANIZATION")
@@ -58,47 +79,28 @@ to quickly create a Cobra application.`,
 		viper.BindEnv("TARGET_PRIVATE_KEY")
 		viper.BindEnv("TARGET_APP_ID")
 		viper.BindEnv("TARGET_INSTALLATION_ID")
+		viper.BindEnv("SOURCE_REPO")
+		viper.BindEnv("TARGET_REPO")
+		viper.BindEnv("MARKDOWN_TABLE")
+
+		// Validate required variables and configuration
+		if err := checkVars(); err != nil {
+			fmt.Printf("Configuration validation failed: %v\n", err)
+			os.Exit(1)
+		}
 
 		initializeAPI()
 
-		// Below are just examples of how to use the API
-		// You can create other functions that encapsulate the API calls to make the code cleaner
-		// and easier to read.
-		// You can also create a new file for each function and import it here
-		// to keep the code organized.
-
-		fmt.Println("Retrieving source user with REST API")
-		sourceUser, err := ghAPI.GetSourceAuthenticatedUser()
+		// Create validator and run migration validation
+		migrationValidator := validator.New(ghAPI)
+		results, err := migrationValidator.ValidateMigration(sourceOrganization, sourceRepo, targetOrganization, targetRepo)
 		if err != nil {
-			fmt.Println("Error retrieving source user with REST API")
-			fmt.Println(err)
+			fmt.Printf("Migration validation failed: %v\n", err)
+			os.Exit(1)
 		}
-		fmt.Println("Source user: ", sourceUser.GetLogin())
 
-		fmt.Println("Retrieiving target user with REST API")
-
-		targetuser, err := ghAPI.GetTargetAuthenticatedUser()
-		if err != nil {
-			fmt.Println("Error retrieving target user with REST API")
-			fmt.Println(err)
-		}
-		fmt.Println("Target user: ", targetuser.GetLogin())
-
-		fmt.Println("Retrieiving source user with GraphQL API")
-		sourceGQLuser, err := ghAPI.GetSourceGraphQLAuthenticatedUser()
-		if err != nil {
-			fmt.Println("Error retrieving source user with GraphQL API")
-			fmt.Println(err)
-		}
-		fmt.Println("Source graphql user: ", sourceGQLuser.GetLogin())
-
-		fmt.Println("Retrieiving target user with GraphQL API")
-		targetGQLUser, err := ghAPI.GetTargetGraphQLAuthenticatedUser()
-		if err != nil {
-			fmt.Println("Error retrieving target user with GraphQL API")
-			fmt.Println(err)
-		}
-		fmt.Println("Target graphql user: ", targetGQLUser.GetLogin())
+		// Print the validation results - always report what we found
+		migrationValidator.PrintValidationResults(results)
 	},
 }
 
@@ -116,27 +118,61 @@ func init() {
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
 
-	// rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.gh-extension-template.yaml)")
-
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
 
 	rootCmd.Flags().StringP("source-organization", "s", "", "Source Organization to sync teams from")
-	//rootCmd.MarkFlagRequired("source-organization")
+	rootCmd.MarkFlagRequired("source-organization")
 
 	rootCmd.Flags().StringP("target-organization", "t", "", "Target Organization to sync teams from")
-	//rootCmd.MarkFlagRequired("target-organization")
+	rootCmd.MarkFlagRequired("target-organization")
 
 	rootCmd.Flags().StringP("source-token", "a", "", "Source Organization GitHub token. Scopes: read:org, read:user, user:email")
-	rootCmd.MarkFlagRequired("source-token")
+	//rootCmd.MarkFlagRequired("source-token")
 
 	rootCmd.Flags().StringP("target-token", "b", "", "Target Organization GitHub token. Scopes: admin:org")
-	rootCmd.MarkFlagRequired("target-token")
+	//rootCmd.MarkFlagRequired("target-token")
 
 	rootCmd.Flags().StringP("source-hostname", "u", "", "GitHub Enterprise source hostname url (optional) Ex. https://github.example.com")
 
-	viper.SetEnvPrefix("GHET") // Set the environment variable prefix, GHET (GitHub Extension Template) is just an example
+	rootCmd.Flags().StringP("source-repo", "", "", "Source repository name to verify against (just the repo name, not owner/repo)")
+
+	rootCmd.Flags().StringP("target-repo", "", "", "Target repository name to verify against (just the repo name, not owner/repo)")
+
+	//boolean flag for printing the markdown table
+	rootCmd.Flags().BoolP("markdown-table", "m", false, "Print results as a markdown table")
+
+	viper.SetEnvPrefix("GHMV") // Set the environment variable prefix, GHMV (GitHub Migration Validator)
 
 	// Read in environment variables that match
 	viper.AutomaticEnv()
+}
+
+func checkVars() error {
+	// Check for tokens - they can be provided via flags or environment variables
+	sourceToken := viper.GetString("SOURCE_TOKEN")
+	targetToken := viper.GetString("TARGET_TOKEN")
+
+	if sourceToken == "" {
+		return fmt.Errorf("source token is required. Set it via --source-token flag or GHMV_SOURCE_TOKEN environment variable")
+	}
+
+	if targetToken == "" {
+		return fmt.Errorf("target token is required. Set it via --target-token flag or GHMV_TARGET_TOKEN environment variable")
+	}
+
+	// Check repository configuration
+	sourceRepo := viper.GetString("SOURCE_REPO")
+	targetRepo := viper.GetString("TARGET_REPO")
+
+	// We need both source and target repositories
+	if sourceRepo == "" {
+		return fmt.Errorf("source repository is required. Set it via --source-repo flag")
+	}
+
+	if targetRepo == "" {
+		return fmt.Errorf("target repository is required. Set it via --target-repo flag")
+	}
+
+	return nil
 }

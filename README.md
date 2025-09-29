@@ -1,62 +1,125 @@
-# gh-extension-template
+# GitHub Migration Validator
 
-`gh-extension-template` is a template for creating GitHub CLI extensions. It provides a basic structure and some common features to help you get started quickly.
+A GitHub CLI extension for validating GitHub organization and repository migrations by comparing key metrics between source and target repositories.
+
+## Overview
+
+The GitHub Migration Validator helps ensure that your migration from one GitHub organization/repository to another has been completed successfully. It compares various repository metrics (issues, pull requests, tags, releases, commits) between source and target repositories and provides a detailed validation report.
 
 ## Install
 
 ```bash
-gh extension install mona-actions/<repo-name>
+gh extension install mona-actions/gh-migration-validator
 ```
+
+## Usage
+
+### Basic Usage
+
+```bash
+gh migration-validator \
+  --source-organization "source-org" \
+  --target-organization "target-org" \
+  --source-repo "my-repo" \
+  --target-repo "my-repo" \
+  --source-token "ghp_xxx" \
+  --target-token "ghp_yyy"
+```
+
+### With Markdown Output
+
+```bash
+gh migration-validator \
+  --source-organization "source-org" \
+  --target-organization "target-org" \
+  --source-repo "my-repo" \
+  --target-repo "my-repo" \
+  --source-token "ghp_xxx" \
+  --target-token "ghp_yyy" \
+  --markdown-table
+```
+
+### Environment Variables
+
+You can use environment variables instead of flags:
+
+```bash
+export GHMV_SOURCE_ORGANIZATION="source-org"
+export GHMV_TARGET_ORGANIZATION="target-org" 
+export GHMV_SOURCE_TOKEN="ghp_xxx"
+export GHMV_TARGET_TOKEN="ghp_yyy"
+export GHMV_SOURCE_REPO="my-repo"
+export GHMV_TARGET_REPO="my-repo"
+export GHMV_MARKDOWN_TABLE="true"
+
+gh migration-validator
+```
+
+### GitHub App Authentication
+
+For GitHub App authentication, use environment variables:
+
+```bash
+# Source GitHub App
+export GHMV_SOURCE_APP_ID="123456"
+export GHMV_SOURCE_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n..."
+export GHMV_SOURCE_INSTALLATION_ID="987654"
+
+# Target GitHub App  
+export GHMV_TARGET_APP_ID="123457"
+export GHMV_TARGET_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n..."
+export GHMV_TARGET_INSTALLATION_ID="987655"
+```
+
+### Enterprise Server Support
+
+For GitHub Enterprise Server:
+
+```bash
+export GHMV_SOURCE_HOSTNAME="https://github.example.com"
+```
+
+## What Gets Validated
+
+The tool compares the following metrics between source and target repositories:
+
+- **Issues**: Total count (expects +1 in target for migration log issue)
+- **Pull Requests**: Total, Open, Merged, and Closed counts
+- **Tags**: Total count of Git tags
+- **Releases**: Total count of GitHub releases
+- **Commits**: Total commit count on default branch
+- **Latest Commit SHA**: Ensures both repositories have the same latest commit in default branch
+
+## Validation Results
+
+- ✅ **PASS**: Metrics match expected values
+- ❌ **FAIL**: Target is missing data from source
+- ⚠️ **WARN**: Target has more data than source (usually acceptable)
+
+## Output Formats
+
+### Console Output
+The tool provides a formatted table with colored status indicators and a summary.
+
+### Markdown Output
+Use the `--markdown-table` flag to generate copy-paste ready markdown for documentation.
 
 ## Dependencies
 
 - [Go](https://golang.org/doc/install) 1.20 or higher
 - Key dependencies:
-  - [Cobra](https://github.com/spf13/cobra) - CLI framework for command line applications
-  - [Viper](https://github.com/spf13/viper) - Configuration management with environment variable support
-  - [go-github](https://github.com/google/go-github) - GitHub REST API v3 client
-  - [githubv4](https://github.com/shurcooL/githubv4) - GitHub GraphQL API v4 client
+  - [Cobra](https://github.com/spf13/cobra) - CLI framework
+  - [Viper](https://github.com/spf13/viper) - Configuration management
+  - [go-github](https://github.com/google/go-github) - GitHub REST API client
+  - [githubv4](https://github.com/shurcooL/githubv4) - GitHub GraphQL API client
   - [go-githubauth](https://github.com/jferrl/go-githubauth) - GitHub App authentication
   - [go-github-ratelimit](https://github.com/gofri/go-github-ratelimit) - Rate limit handling
+  - [pterm](https://github.com/pterm/pterm) - Terminal styling and formatting
 
-## Features
+## Contributing
 
-- Pre-configured GitHub API clients:
-  - REST API client using [`go-github`](https://github.com/google/go-github)
-  - GraphQL API client with rate limit handling
-  - Support for both Personal Access Token and GitHub App authentication
-  - Enterprise Server support via hostname configuration
-
-- Common CLI flags:
-  - Source/target organization flags
-  - Token authentication flags
-  - Enterprise hostname support
-  - All flags support environment variable configuration
-
-- Built-in release management:
-  - Automated versioning using Release Drafter
-  - Version bumping based on PR labels
-  - Automated changelog generation
-  - Pre-compiled extension binaries
-
-### Environment variables
-
-GitHub App authentication in this template is not handled by flags, but by environment variables. You can set them in your shell or in a `.env` file.
-This can be quickly changed to add flags for the app ID, private key, and installation ID.
-
-It's recommended to use the prefix set in the `viper` configuration, which is `GHET_` in this case, to avoid conflicts with other environment variables.
-
-```sh
-# Required for GitHub App auth
-export GHET_SOURCE_APP_ID="123456"
-export GHET_SOURCE_PRIVATE_KEY="-----BEGIN RSA -----\n..."
-export GHET_SOURCE_INSTALLATION_ID="987654"
-
-# Optional Enterprise Server URL
-export GHET_SOURCE_HOSTNAME="https://github.example.com"
-```
+Contributions are welcome! Please see [CONTRIBUTING.md](.github/contributing.md) for guidelines.
 
 ## License
 
-- [MIT](./license) (c) [Mona-Actions](https://github.com/mona-actions)
-- [Contributing](./contributing.md)
+[MIT](./LICENSE) © [Mona-Actions](https://github.com/mona-actions)

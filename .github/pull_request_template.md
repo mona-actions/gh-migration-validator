@@ -15,6 +15,7 @@ Please include a summary of the changes and the related issue. Please also inclu
 ## Checklist
 
 <!-- - [ ] Issue linked if existing -->
+- [ ] I have added the appropriate label to this PR according to the type of change
 - [ ] I have commented my code, particularly in hard-to-understand areas
 - [ ] I have made corresponding changes to the documentation
 - [ ] I have added tests

@@ -26,6 +26,14 @@ type ClientConfig struct {
 	InstallationID int64
 }
 
+// ClientType represents the type of GitHub client to use
+type ClientType int
+
+const (
+	SourceClient ClientType = iota
+	TargetClient
+)
+
 // GitHubAPI holds the clients for interacting with GitHub
 type GitHubAPI struct {
 	sourceClient      *github.Client
@@ -201,76 +209,275 @@ func (c *RateLimitAwareGraphQLClient) Query(ctx context.Context, q interface{}, 
 	}
 }
 
-func (api *GitHubAPI) GetSourceAuthenticatedUser() (*github.User, error) {
-
-	ctx := context.Background()
-
-	user, _, err := api.sourceClient.Users.Get(ctx, "")
-	if err != nil {
-		if strings.Contains(err.Error(), "403 Resource not accessible by integration") {
-			return nil, err
-		}
-		return nil, err
-	}
-	return user, nil
-}
-
-func (api *GitHubAPI) GetTargetAuthenticatedUser() (*github.User, error) {
-
-	ctx := context.Background()
-
-	user, _, err := api.targetClient.Users.Get(ctx, "")
-	if err != nil {
-		if strings.Contains(err.Error(), "403 Resource not accessible by integration") {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return user, nil
-}
-
-func (api *GitHubAPI) GetSourceGraphQLAuthenticatedUser() (*github.User, error) {
+// GetIssueCount retrieves the total count of issues for a repository using GraphQL
+func (api *GitHubAPI) GetIssueCount(clientType ClientType, owner, name string) (int, error) {
 	ctx := context.Background()
 
 	var query struct {
-		Viewer struct {
-			Login string
-			Email string
-		}
+		Repository struct {
+			NameWithOwner string
+			Issues        struct {
+				TotalCount int
+			}
+		} `graphql:"repository(owner: $owner, name: $name)"`
 	}
 
-	err := api.sourceGraphClient.Query(ctx, &query, nil)
+	variables := map[string]interface{}{
+		"owner": githubv4.String(owner),
+		"name":  githubv4.String(name),
+	}
+
+	var client *RateLimitAwareGraphQLClient
+	var clientName string
+
+	switch clientType {
+	case SourceClient:
+		client = api.sourceGraphClient
+		clientName = "source"
+	case TargetClient:
+		client = api.targetGraphClient
+		clientName = "target"
+	default:
+		return 0, fmt.Errorf("invalid client type")
+	}
+
+	err := client.Query(ctx, &query, variables)
 	if err != nil {
-		return nil, err
+		return 0, fmt.Errorf("failed to query %s repository issue count: %v", clientName, err)
 	}
 
-	user := &github.User{
-		Login: github.String(query.Viewer.Login),
-		Email: github.String(query.Viewer.Email),
-	}
-
-	return user, nil
+	return query.Repository.Issues.TotalCount, nil
 }
 
-func (api *GitHubAPI) GetTargetGraphQLAuthenticatedUser() (*github.User, error) {
+// PRCounts holds the counts for different pull request states
+type PRCounts struct {
+	Open   int
+	Merged int
+	Closed int
+	Total  int
+}
+
+// GetPRCounts retrieves the counts of pull requests by state for a repository using GraphQL
+func (api *GitHubAPI) GetPRCounts(clientType ClientType, owner, name string) (*PRCounts, error) {
 	ctx := context.Background()
 
 	var query struct {
-		Viewer struct {
-			Login string
-			Email string
-		}
+		Repository struct {
+			NameWithOwner string
+			OpenPRs       struct {
+				TotalCount int
+			} `graphql:"openPRs: pullRequests(states: OPEN)"`
+			MergedPRs struct {
+				TotalCount int
+			} `graphql:"mergedPRs: pullRequests(states: MERGED)"`
+			ClosedPRs struct {
+				TotalCount int
+			} `graphql:"closedPRs: pullRequests(states: CLOSED)"`
+		} `graphql:"repository(owner: $owner, name: $name)"`
 	}
 
-	err := api.targetGraphClient.Query(ctx, &query, nil)
+	variables := map[string]interface{}{
+		"owner": githubv4.String(owner),
+		"name":  githubv4.String(name),
+	}
+
+	var client *RateLimitAwareGraphQLClient
+	var clientName string
+
+	switch clientType {
+	case SourceClient:
+		client = api.sourceGraphClient
+		clientName = "source"
+	case TargetClient:
+		client = api.targetGraphClient
+		clientName = "target"
+	default:
+		return nil, fmt.Errorf("invalid client type")
+	}
+
+	err := client.Query(ctx, &query, variables)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to query %s repository PR counts: %v", clientName, err)
 	}
 
-	user := &github.User{
-		Login: github.String(query.Viewer.Login),
-		Email: github.String(query.Viewer.Email),
+	counts := &PRCounts{
+		Open:   query.Repository.OpenPRs.TotalCount,
+		Merged: query.Repository.MergedPRs.TotalCount,
+		Closed: query.Repository.ClosedPRs.TotalCount,
 	}
 
-	return user, nil
+	// Calculate total count
+	counts.Total = counts.Open + counts.Merged + counts.Closed
+
+	return counts, nil
+}
+
+// GetTagCount retrieves the total count of tags for a repository using GraphQL
+func (api *GitHubAPI) GetTagCount(clientType ClientType, owner, name string) (int, error) {
+	ctx := context.Background()
+
+	var query struct {
+		Repository struct {
+			NameWithOwner string
+			Refs          struct {
+				TotalCount int
+			} `graphql:"refs(refPrefix: \"refs/tags/\")"`
+		} `graphql:"repository(owner: $owner, name: $name)"`
+	}
+
+	variables := map[string]interface{}{
+		"owner": githubv4.String(owner),
+		"name":  githubv4.String(name),
+	}
+
+	var client *RateLimitAwareGraphQLClient
+	var clientName string
+
+	switch clientType {
+	case SourceClient:
+		client = api.sourceGraphClient
+		clientName = "source"
+	case TargetClient:
+		client = api.targetGraphClient
+		clientName = "target"
+	default:
+		return 0, fmt.Errorf("invalid client type")
+	}
+
+	err := client.Query(ctx, &query, variables)
+	if err != nil {
+		return 0, fmt.Errorf("failed to query %s repository tag count: %v", clientName, err)
+	}
+
+	return query.Repository.Refs.TotalCount, nil
+}
+
+// GetReleaseCount retrieves the total count of releases for a repository using GraphQL
+func (api *GitHubAPI) GetReleaseCount(clientType ClientType, owner, name string) (int, error) {
+	ctx := context.Background()
+
+	var query struct {
+		Repository struct {
+			NameWithOwner string
+			Releases      struct {
+				TotalCount int
+			}
+		} `graphql:"repository(owner: $owner, name: $name)"`
+	}
+
+	variables := map[string]interface{}{
+		"owner": githubv4.String(owner),
+		"name":  githubv4.String(name),
+	}
+
+	var client *RateLimitAwareGraphQLClient
+	var clientName string
+
+	switch clientType {
+	case SourceClient:
+		client = api.sourceGraphClient
+		clientName = "source"
+	case TargetClient:
+		client = api.targetGraphClient
+		clientName = "target"
+	default:
+		return 0, fmt.Errorf("invalid client type")
+	}
+
+	err := client.Query(ctx, &query, variables)
+	if err != nil {
+		return 0, fmt.Errorf("failed to query %s repository release count: %v", clientName, err)
+	}
+
+	return query.Repository.Releases.TotalCount, nil
+}
+
+// GetCommitCount retrieves the total count of commits on the default branch using GraphQL
+func (api *GitHubAPI) GetCommitCount(clientType ClientType, owner, name string) (int, error) {
+	ctx := context.Background()
+
+	var query struct {
+		Repository struct {
+			NameWithOwner    string
+			DefaultBranchRef struct {
+				Target struct {
+					Commit struct {
+						History struct {
+							TotalCount int
+						}
+					} `graphql:"... on Commit"`
+				}
+			}
+		} `graphql:"repository(owner: $owner, name: $name)"`
+	}
+
+	variables := map[string]interface{}{
+		"owner": githubv4.String(owner),
+		"name":  githubv4.String(name),
+	}
+
+	var client *RateLimitAwareGraphQLClient
+	var clientName string
+
+	switch clientType {
+	case SourceClient:
+		client = api.sourceGraphClient
+		clientName = "source"
+	case TargetClient:
+		client = api.targetGraphClient
+		clientName = "target"
+	default:
+		return 0, fmt.Errorf("invalid client type")
+	}
+
+	err := client.Query(ctx, &query, variables)
+	if err != nil {
+		return 0, fmt.Errorf("failed to query %s repository commit count: %v", clientName, err)
+	}
+
+	return query.Repository.DefaultBranchRef.Target.Commit.History.TotalCount, nil
+}
+
+// GetLatestCommitHash retrieves the latest commit hash from the default branch using GraphQL
+func (api *GitHubAPI) GetLatestCommitHash(clientType ClientType, owner, name string) (string, error) {
+	ctx := context.Background()
+
+	var query struct {
+		Repository struct {
+			NameWithOwner    string
+			DefaultBranchRef struct {
+				Target struct {
+					Commit struct {
+						OID string
+					} `graphql:"... on Commit"`
+				}
+			}
+		} `graphql:"repository(owner: $owner, name: $name)"`
+	}
+
+	variables := map[string]interface{}{
+		"owner": githubv4.String(owner),
+		"name":  githubv4.String(name),
+	}
+
+	var client *RateLimitAwareGraphQLClient
+	var clientName string
+
+	switch clientType {
+	case SourceClient:
+		client = api.sourceGraphClient
+		clientName = "source"
+	case TargetClient:
+		client = api.targetGraphClient
+		clientName = "target"
+	default:
+		return "", fmt.Errorf("invalid client type")
+	}
+
+	err := client.Query(ctx, &query, variables)
+	if err != nil {
+		return "", fmt.Errorf("failed to query %s repository latest commit hash: %v", clientName, err)
+	}
+
+	return query.Repository.DefaultBranchRef.Target.Commit.OID, nil
 }
