@@ -34,5 +34,8 @@ scratch
 .vscode
 .env
 
+*.txt
+.ghmv/
+
 # binary
 gh-migration-validator
