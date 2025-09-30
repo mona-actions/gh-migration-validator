@@ -9,6 +9,7 @@ import (
 	"mona-actions/gh-migration-validator/internal/validator"
 	"os"
 
+	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -27,7 +28,14 @@ var rootCmd = &cobra.Command{
 
 This tool helps ensure that your migration from one GitHub organization to another
 has been completed successfully by comparing certain repositories resources
-between source and target organizations.`,
+between source and target organizations.
+
+Examples:
+  # Single repository validation
+  gh migration-validator --source-org myorg --target-org neworg --source-repo repo1 --target-repo repo1-migrated
+
+  # Multiple repositories from CSV file
+  gh migration-validator --source-org myorg --target-org neworg --repo-list repos.txt`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
 	Run: func(cmd *cobra.Command, args []string) {
@@ -39,6 +47,7 @@ between source and target organizations.`,
 		ghHostname := cmd.Flag("source-hostname").Value.String()
 		sourceRepo := cmd.Flag("source-repo").Value.String()
 		targetRepo := cmd.Flag("target-repo").Value.String()
+		repoList := cmd.Flag("repo-list").Value.String()
 		markdownTable := cmd.Flag("markdown-table").Value.String()
 
 		// Only set ENV variables if flag values are provided (not empty)
@@ -63,6 +72,9 @@ between source and target organizations.`,
 		if targetRepo != "" {
 			os.Setenv("GHMV_TARGET_REPO", targetRepo)
 		}
+		if repoList != "" {
+			os.Setenv("GHMV_REPO_LIST", repoList)
+		}
 		if markdownTable != "" {
 			os.Setenv("GHMV_MARKDOWN_TABLE", markdownTable)
 		}
@@ -81,6 +93,7 @@ between source and target organizations.`,
 		viper.BindEnv("TARGET_INSTALLATION_ID")
 		viper.BindEnv("SOURCE_REPO")
 		viper.BindEnv("TARGET_REPO")
+		viper.BindEnv("REPO_LIST")
 		viper.BindEnv("MARKDOWN_TABLE")
 
 		// Validate required variables and configuration
@@ -91,17 +104,140 @@ between source and target organizations.`,
 
 		initializeAPI()
 
-		// Create validator and run migration validation
+		// Create validator
 		migrationValidator := validator.New(ghAPI)
-		results, err := migrationValidator.ValidateMigration(sourceOrganization, sourceRepo, targetOrganization, targetRepo)
+
+		// Determine if this is single repo or batch mode
+		repoListFile := viper.GetString("REPO_LIST")
+
+		if repoListFile != "" {
+			// BATCH MODE: Multiple repositories from CSV file
+			if err := runBatchValidation(migrationValidator, sourceOrganization, targetOrganization, repoListFile); err != nil {
+				pterm.Error.Printf("Batch validation failed: %v\n", err)
+				os.Exit(1)
+			}
+		} else {
+			// SINGLE REPO MODE: Individual repository validation
+			sourceRepo := viper.GetString("SOURCE_REPO")
+			targetRepo := viper.GetString("TARGET_REPO")
+
+			if err := runSingleValidation(migrationValidator, sourceOrganization, sourceRepo, targetOrganization, targetRepo); err != nil {
+				pterm.Error.Printf("Single validation failed: %v\n", err)
+				os.Exit(1)
+			}
+		}
+	},
+}
+
+// runBatchValidation handles validation of multiple repositories from CSV file
+func runBatchValidation(mv *validator.MigrationValidator, sourceOrg, targetOrg, repoListFile string) error {
+	pterm.Info.Printf("Starting batch validation from: %s\n", repoListFile)
+
+	// Parse the repository list from CSV
+	pairs, err := mv.ParseRepositoryList(repoListFile)
+	if err != nil {
+		return fmt.Errorf("failed to parse repository list: %w", err)
+	}
+
+	pterm.Info.Printf("Found %d repository pairs to validate\n", len(pairs))
+
+	// Validate all repositories in batch
+	batchResult, err := mv.ValidateBatch(sourceOrg, targetOrg, pairs)
+	if err != nil {
+		return fmt.Errorf("batch validation failed: %w", err)
+	}
+
+	// Print batch results using executive summary format (Option 4 + Option 2 style)
+	mv.PrintBatchResults(batchResult)
+
+	// Handle session management - save if issues found or in CI
+	handleSessionManagement(mv)
+
+	// Return error if there were failures (for CI/automation)
+	if batchResult.Summary.Failed > 0 {
+		return fmt.Errorf("batch validation completed with %d failures", batchResult.Summary.Failed)
+	}
+
+	return nil
+}
+
+// runSingleValidation handles validation of a single repository pair
+func runSingleValidation(mv *validator.MigrationValidator, sourceOrg, sourceRepo, targetOrg, targetRepo string) error {
+	pterm.Info.Printf("Starting single repository validation: %s/%s → %s/%s\n", sourceOrg, sourceRepo, targetOrg, targetRepo)
+
+	// Run single repository validation
+	results, err := mv.ValidateMigration(sourceOrg, sourceRepo, targetOrg, targetRepo)
+	if err != nil {
+		return fmt.Errorf("migration validation failed: %w", err)
+	}
+
+	// Print single repository results using current detailed format
+	mv.PrintValidationResults(results)
+
+	// Use shared function to determine status and return error for CI/automation
+	status, _ := validator.DetermineRepositoryStatus(results)
+	if status == "❌ FAIL" {
+		return fmt.Errorf("validation failed - some data is missing in target repository")
+	}
+
+	return nil
+}
+
+// handleSessionManagement implements smart session saving logic
+func handleSessionManagement(mv *validator.MigrationValidator) {
+	// Only attempt session management for batch results
+	if mv.BatchResult == nil {
+		return
+	}
+
+	result := mv.BatchResult
+	shouldSave := false
+
+	// Save if there are failures or warnings
+	if result.Summary.Failed > 0 || result.Summary.Warnings > 0 {
+		shouldSave = true
+	}
+
+	// Always save in CI or non-interactive environments
+	if isNonInteractive() {
+		shouldSave = true
+	}
+
+	if shouldSave {
+		sessionPath, err := mv.SaveSession()
 		if err != nil {
-			fmt.Printf("Migration validation failed: %v\n", err)
-			os.Exit(1)
+			pterm.Warning.Printf("Failed to save session: %v\n", err)
+			return
 		}
 
-		// Print the validation results - always report what we found
-		migrationValidator.PrintValidationResults(results)
-	},
+		pterm.Success.Printf("💾 Session saved: %s\n", sessionPath)
+
+		// Show helpful hints if there are issues to investigate
+		if result.Summary.Failed > 0 || result.Summary.Warnings > 0 {
+			pterm.Info.Println()
+			pterm.Info.Printf("💡 To investigate specific repositories, use:\n")
+			pterm.Info.Printf("   gh migration-validator inspect <repository-name>\n")
+		}
+	}
+}
+
+// isNonInteractive checks if we're running in a non-interactive environment
+func isNonInteractive() bool {
+	// Check for common CI environment variables
+	ciEnvVars := []string{"CI", "CONTINUOUS_INTEGRATION", "GITHUB_ACTIONS", "JENKINS_URL", "BUILD_NUMBER"}
+	for _, envVar := range ciEnvVars {
+		if os.Getenv(envVar) != "" {
+			return true
+		}
+	}
+
+	// Check if stdout is not a terminal
+	stat, err := os.Stdout.Stat()
+	if err != nil {
+		return true
+	}
+
+	return (stat.Mode() & os.ModeCharDevice) == 0
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -128,16 +264,16 @@ func init() {
 	rootCmd.MarkFlagRequired("target-organization")
 
 	rootCmd.Flags().StringP("source-token", "a", "", "Source Organization GitHub token. Scopes: read:org, read:user, user:email")
-	//rootCmd.MarkFlagRequired("source-token")
 
 	rootCmd.Flags().StringP("target-token", "b", "", "Target Organization GitHub token. Scopes: admin:org")
-	//rootCmd.MarkFlagRequired("target-token")
 
 	rootCmd.Flags().StringP("source-hostname", "u", "", "GitHub Enterprise source hostname url (optional) Ex. https://github.example.com")
 
 	rootCmd.Flags().StringP("source-repo", "", "", "Source repository name to verify against (just the repo name, not owner/repo)")
 
 	rootCmd.Flags().StringP("target-repo", "", "", "Target repository name to verify against (just the repo name, not owner/repo)")
+
+	rootCmd.Flags().StringP("repo-list", "l", "", "Path to CSV file containing repository pairs (format: source,target)")
 
 	//boolean flag for printing the markdown table
 	rootCmd.Flags().BoolP("markdown-table", "m", false, "Print results as a markdown table")
@@ -164,14 +300,24 @@ func checkVars() error {
 	// Check repository configuration
 	sourceRepo := viper.GetString("SOURCE_REPO")
 	targetRepo := viper.GetString("TARGET_REPO")
+	repoListFile := viper.GetString("REPO_LIST")
 
-	// We need both source and target repositories
+	// If repo list file is provided, we don't need individual source/target repos
+	if repoListFile != "" {
+		// Validate that the repo list file exists
+		if _, err := os.Stat(repoListFile); os.IsNotExist(err) {
+			return fmt.Errorf("repo list file does not exist: %s", repoListFile)
+		}
+		return nil
+	}
+
+	// We need both source and target repositories for single mode
 	if sourceRepo == "" {
-		return fmt.Errorf("source repository is required. Set it via --source-repo flag")
+		return fmt.Errorf("source repository is required. Set it via --source-repo flag or provide --repo-list")
 	}
 
 	if targetRepo == "" {
-		return fmt.Errorf("target repository is required. Set it via --target-repo flag")
+		return fmt.Errorf("target repository is required. Set it via --target-repo flag or provide --repo-list")
 	}
 
 	return nil

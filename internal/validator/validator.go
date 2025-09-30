@@ -1,8 +1,14 @@
 package validator
 
 import (
+	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"mona-actions/gh-migration-validator/internal/api"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/pterm/pterm"
 	"github.com/spf13/viper"
@@ -29,11 +35,58 @@ type ValidationResult struct {
 	Difference int    // How many items are missing in target (negative if target has more)
 }
 
+// RepositoryPair represents a source/target repository pair
+type RepositoryPair struct {
+	SourceRepo string
+	TargetRepo string
+}
+
+// ValidationError represents a detailed error that occurred during validation
+type ValidationError struct {
+	ErrorType    string `json:"error_type"`    // "api_error", "validation_error", "network_error", etc.
+	ErrorMessage string `json:"error_message"` // Detailed error message
+	Timestamp    string `json:"timestamp"`     // When the error occurred
+}
+
+// RepositoryValidationResult holds validation results for a single repository pair
+type RepositoryValidationResult struct {
+	SourceRepo      string             `json:"source_repo"`
+	TargetRepo      string             `json:"target_repo"`
+	SourceOwner     string             `json:"source_owner"`
+	TargetOwner     string             `json:"target_owner"`
+	Results         []ValidationResult `json:"results"`
+	OverallStatus   string             `json:"overall_status"`             // "✅ PASS", "❌ FAIL", "⚠️ WARN"
+	FailureReason   string             `json:"failure_reason"`             // Summary of what failed
+	ValidationError *ValidationError   `json:"validation_error,omitempty"` // Detailed error if validation failed
+	ProcessingTime  time.Duration      `json:"processing_time"`            // How long validation took
+}
+
+// BatchValidationResult holds results for multiple repository validations
+type BatchValidationResult struct {
+	Timestamp    time.Time
+	SourceOrg    string
+	TargetOrg    string
+	Repositories []RepositoryValidationResult
+	Summary      BatchSummary
+}
+
+// BatchSummary provides aggregate statistics
+type BatchSummary struct {
+	Total          int            `json:"total"`
+	Passed         int            `json:"passed"`
+	Failed         int            `json:"failed"`
+	Warnings       int            `json:"warnings"`
+	ErrorSummary   map[string]int `json:"error_summary"`   // Count of each error type
+	ProcessingTime time.Duration  `json:"processing_time"` // Total time for batch processing
+	FailedRepos    []string       `json:"failed_repos"`    // List of repositories that failed
+}
+
 // MigrationValidator handles the validation of GitHub organization migrations
 type MigrationValidator struct {
-	api        *api.GitHubAPI
-	SourceData *RepositoryData
-	TargetData *RepositoryData
+	api         *api.GitHubAPI
+	SourceData  *RepositoryData
+	TargetData  *RepositoryData
+	BatchResult *BatchValidationResult
 }
 
 // New creates a new MigrationValidator instance
@@ -43,6 +96,190 @@ func New(githubAPI *api.GitHubAPI) *MigrationValidator {
 		SourceData: &RepositoryData{},
 		TargetData: &RepositoryData{},
 	}
+}
+
+// ParseRepositoryList reads a CSV file and returns repository pairs
+func (mv *MigrationValidator) ParseRepositoryList(filePath string) ([]RepositoryPair, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open repository list file: %w", err)
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	records, err := reader.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse CSV file: %w", err)
+	}
+
+	if len(records) < 2 {
+		return nil, fmt.Errorf("CSV file must have at least a header row and one data row")
+	}
+
+	// Validate header
+	header := records[0]
+	if len(header) != 2 || strings.ToLower(header[0]) != "source" || strings.ToLower(header[1]) != "target" {
+		return nil, fmt.Errorf("CSV file must have header: source,target")
+	}
+
+	var pairs []RepositoryPair
+	for i, record := range records[1:] {
+		if len(record) != 2 {
+			return nil, fmt.Errorf("row %d: expected 2 columns, got %d", i+2, len(record))
+		}
+
+		sourceRepo := strings.TrimSpace(record[0])
+		targetRepo := strings.TrimSpace(record[1])
+
+		if sourceRepo == "" || targetRepo == "" {
+			return nil, fmt.Errorf("row %d: source and target repository names cannot be empty", i+2)
+		}
+
+		pairs = append(pairs, RepositoryPair{
+			SourceRepo: sourceRepo,
+			TargetRepo: targetRepo,
+		})
+	}
+
+	return pairs, nil
+}
+
+// DetermineRepositoryStatus analyzes ValidationResult array and returns overall status and failure reason
+func DetermineRepositoryStatus(validationResults []ValidationResult) (status string, failureReason string) {
+	hasFailures := false
+	hasWarnings := false
+	var issues []string
+
+	for _, vr := range validationResults {
+		switch vr.Status {
+		case "❌ FAIL":
+			hasFailures = true
+			issues = append(issues, fmt.Sprintf("Missing %s", vr.Metric))
+		case "⚠️ WARN":
+			hasWarnings = true
+			issues = append(issues, fmt.Sprintf("Extra %s", vr.Metric))
+		}
+	}
+
+	if hasFailures {
+		return "❌ FAIL", strings.Join(issues, ", ")
+	} else if hasWarnings {
+		return "⚠️ WARN", strings.Join(issues, ", ")
+	} else {
+		return "✅ PASS", ""
+	}
+}
+
+// ValidateBatch performs validation on multiple repository pairs
+func (mv *MigrationValidator) ValidateBatch(sourceOwner, targetOwner string, pairs []RepositoryPair) (*BatchValidationResult, error) {
+	batchStartTime := time.Now()
+	fmt.Printf("Starting batch migration validation for %d repositories...\n", len(pairs))
+
+	// Initialize batch result with enhanced summary tracking
+	result := &BatchValidationResult{
+		Timestamp:    batchStartTime,
+		SourceOrg:    sourceOwner,
+		TargetOrg:    targetOwner,
+		Repositories: make([]RepositoryValidationResult, 0, len(pairs)),
+		Summary: BatchSummary{
+			Total:        len(pairs),
+			ErrorSummary: make(map[string]int),
+			FailedRepos:  make([]string, 0),
+		},
+	}
+
+	// Progress bar for batch processing with enhanced status display
+	progressBar, _ := pterm.DefaultProgressbar.WithTotal(len(pairs)).WithTitle("Validating repositories").Start()
+
+	// Track progress counts for real-time feedback
+	var processed, passed, failed, warnings int
+
+	for i, pair := range pairs {
+		repoStartTime := time.Now()
+
+		// Enhanced progress display with current stats
+		progressTitle := fmt.Sprintf("Validating %s → %s (%d/%d | ✅ %d ❌ %d ⚠️ %d)",
+			pair.SourceRepo, pair.TargetRepo, i+1, len(pairs), passed, failed, warnings)
+		progressBar.UpdateTitle(progressTitle)
+
+		// Initialize repository result structure
+		repoResult := RepositoryValidationResult{
+			SourceRepo:  pair.SourceRepo,
+			TargetRepo:  pair.TargetRepo,
+			SourceOwner: sourceOwner,
+			TargetOwner: targetOwner,
+		}
+
+		// Call ValidateMigration for this repository pair
+		validationResults, err := mv.ValidateMigration(sourceOwner, pair.SourceRepo, targetOwner, pair.TargetRepo)
+
+		// Record processing time for this repository
+		repoResult.ProcessingTime = time.Since(repoStartTime)
+
+		if err != nil {
+			// Handle validation error - log actual error without categorization
+			repoResult.OverallStatus = "❌ FAIL"
+			repoResult.FailureReason = fmt.Sprintf("Validation failed: %v", err)
+
+			// Create detailed error information with actual error
+			repoResult.ValidationError = &ValidationError{
+				ErrorType:    "validation_error", // Simple, consistent error type
+				ErrorMessage: err.Error(),
+				Timestamp:    time.Now().Format(time.RFC3339),
+			}
+
+			// Update batch summary tracking
+			result.Summary.Failed++
+			result.Summary.ErrorSummary["validation_error"]++
+			result.Summary.FailedRepos = append(result.Summary.FailedRepos, fmt.Sprintf("%s→%s", pair.SourceRepo, pair.TargetRepo))
+			failed++
+
+			// Log the actual error for debugging while continuing processing
+			pterm.Warning.Printf("Repository %s/%s → %s/%s failed: %v\n",
+				sourceOwner, pair.SourceRepo, targetOwner, pair.TargetRepo, err)
+		} else {
+			// Process successful validation results
+			repoResult.Results = validationResults
+
+			// Use shared function to determine overall status
+			repoResult.OverallStatus, repoResult.FailureReason = DetermineRepositoryStatus(validationResults)
+
+			// Update summary counters based on status
+			switch repoResult.OverallStatus {
+			case "❌ FAIL":
+				result.Summary.Failed++
+				result.Summary.FailedRepos = append(result.Summary.FailedRepos, fmt.Sprintf("%s→%s", pair.SourceRepo, pair.TargetRepo))
+				failed++
+			case "⚠️ WARN":
+				result.Summary.Warnings++
+				warnings++
+			case "✅ PASS":
+				result.Summary.Passed++
+				passed++
+			}
+		}
+
+		// Add repository result to batch
+		result.Repositories = append(result.Repositories, repoResult)
+		processed++
+
+		// Update progress bar
+		progressBar.Increment()
+	}
+
+	// Complete batch processing
+	result.Summary.ProcessingTime = time.Since(batchStartTime)
+	progressBar.Stop()
+
+	// Final summary display
+	pterm.Success.Printf("Batch validation completed in %v\n", result.Summary.ProcessingTime)
+	pterm.Info.Printf("Results: ✅ %d passed, ❌ %d failed, ⚠️ %d warnings out of %d repositories\n",
+		result.Summary.Passed, result.Summary.Failed, result.Summary.Warnings, result.Summary.Total)
+
+	// Store result for session management
+	mv.BatchResult = result
+
+	return result, nil
 }
 
 // ValidateMigration performs the migration validation logic and returns results
@@ -352,7 +589,140 @@ func (mv *MigrationValidator) ValidateRepositoryData() []ValidationResult {
 	return results
 }
 
-// PrintValidationResults prints a formatted report of the validation results
+// PrintBatchResults prints results for multiple repository validation (executive summary style)
+func (mv *MigrationValidator) PrintBatchResults(result *BatchValidationResult) {
+	// Executive Summary Header
+	pterm.DefaultHeader.WithFullWidth().WithBackgroundStyle(pterm.NewStyle(pterm.BgBlue)).WithTextStyle(pterm.NewStyle(pterm.FgWhite)).Println("📊 Migration Validation Report")
+
+	// Organization info
+	sourceOrgInfo := pterm.DefaultBox.WithTitle("Source Organization").WithTitleTopLeft().Sprint(fmt.Sprintf("Organization: %s", result.SourceOrg))
+	targetOrgInfo := pterm.DefaultBox.WithTitle("Target Organization").WithTitleTopLeft().Sprint(fmt.Sprintf("Organization: %s", result.TargetOrg))
+
+	pterm.DefaultPanel.WithPanels([][]pterm.Panel{
+		{{Data: sourceOrgInfo}, {Data: targetOrgInfo}},
+	}).Render()
+
+	fmt.Println() // Add spacing
+
+	// Executive Summary with enhanced timing information
+	pterm.DefaultSection.Println("🎯 EXECUTIVE SUMMARY")
+
+	summaryData := [][]string{
+		{"Metric", "Count", "Percentage"},
+		{"Total Repositories", fmt.Sprintf("%d", result.Summary.Total), "100%"},
+		{"✅ Passed", fmt.Sprintf("%d", result.Summary.Passed), fmt.Sprintf("%.1f%%", float64(result.Summary.Passed)/float64(result.Summary.Total)*100)},
+		{"❌ Failed", fmt.Sprintf("%d", result.Summary.Failed), fmt.Sprintf("%.1f%%", float64(result.Summary.Failed)/float64(result.Summary.Total)*100)},
+		{"⚠️ Warnings", fmt.Sprintf("%d", result.Summary.Warnings), fmt.Sprintf("%.1f%%", float64(result.Summary.Warnings)/float64(result.Summary.Total)*100)},
+		{"Processing Time", result.Summary.ProcessingTime.Round(time.Second).String(), ""},
+	}
+
+	summaryTable := pterm.DefaultTable.WithHasHeader().WithData(summaryData)
+	summaryTable.Render()
+
+	// Error Summary Section (if there are errors)
+	if len(result.Summary.ErrorSummary) > 0 {
+		fmt.Println() // Add spacing
+		pterm.DefaultSection.Println("📋 ERROR BREAKDOWN")
+
+		errorTableData := [][]string{
+			{"Error Type", "Count", "Percentage of Failures"},
+		}
+
+		for errorType, count := range result.Summary.ErrorSummary {
+			percentage := "N/A"
+			if result.Summary.Failed > 0 {
+				percentage = fmt.Sprintf("%.1f%%", float64(count)/float64(result.Summary.Failed)*100)
+			}
+			errorTableData = append(errorTableData, []string{
+				strings.ReplaceAll(strings.Title(strings.ReplaceAll(errorType, "_", " ")), " ", " "),
+				fmt.Sprintf("%d", count),
+				percentage,
+			})
+		}
+
+		errorTable := pterm.DefaultTable.WithHasHeader().WithData(errorTableData)
+		errorTable.Render()
+	}
+
+	fmt.Println() // Add spacing
+
+	// Attention Required Section (Failed and Warning repositories)
+	attentionRepos := make([]RepositoryValidationResult, 0)
+	for _, repo := range result.Repositories {
+		if repo.OverallStatus == "❌ FAIL" || repo.OverallStatus == "⚠️ WARN" {
+			attentionRepos = append(attentionRepos, repo)
+		}
+	}
+
+	if len(attentionRepos) > 0 {
+		pterm.DefaultSection.Println("🚨 ATTENTION REQUIRED")
+
+		// Failed Repository Details Table with enhanced error information
+		failedTableData := [][]string{
+			{"Repository", "Status", "Issues Found", "Error Type", "Processing Time"},
+		}
+
+		for _, repo := range attentionRepos {
+			errorType := ""
+			if repo.ValidationError != nil {
+				errorType = strings.Title(strings.ReplaceAll(repo.ValidationError.ErrorType, "_", " "))
+			}
+
+			failedTableData = append(failedTableData, []string{
+				fmt.Sprintf("%s → %s", repo.SourceRepo, repo.TargetRepo),
+				repo.OverallStatus,
+				repo.FailureReason,
+				errorType,
+				repo.ProcessingTime.Round(time.Second).String(),
+			})
+		}
+
+		failedTable := pterm.DefaultTable.WithHasHeader().WithData(failedTableData)
+		failedTable.Render()
+
+		fmt.Println() // Add spacing
+	}
+
+	// Successful Migrations (Collapsed List)
+	passedRepos := make([]string, 0)
+	for _, repo := range result.Repositories {
+		if repo.OverallStatus == "✅ PASS" {
+			passedRepos = append(passedRepos, fmt.Sprintf("%s→%s", repo.SourceRepo, repo.TargetRepo))
+		}
+	}
+
+	if len(passedRepos) > 0 {
+		pterm.DefaultSection.Println("✅ SUCCESSFUL MIGRATIONS")
+
+		// Show first few, then collapse if too many
+		const maxShow = 10
+		if len(passedRepos) <= maxShow {
+			pterm.Info.Println(strings.Join(passedRepos, ", "))
+		} else {
+			displayed := strings.Join(passedRepos[:maxShow], ", ")
+			pterm.Info.Printf("%s... and %d more\n", displayed, len(passedRepos)-maxShow)
+		}
+		fmt.Println() // Add spacing
+	}
+
+	// Final Status
+	if result.Summary.Failed > 0 {
+		pterm.Error.Printf("❌ Batch validation FAILED - %d repositories have missing data\n", result.Summary.Failed)
+	} else if result.Summary.Warnings > 0 {
+		pterm.Warning.Printf("⚠️ Batch validation completed with WARNINGS - %d repositories have extra data\n", result.Summary.Warnings)
+	} else {
+		pterm.Success.Println("✅ Batch validation PASSED - All repositories match!")
+	}
+
+	fmt.Println() // Add spacing
+
+	// Tip for detailed analysis
+	if len(attentionRepos) > 0 {
+		pterm.Info.Println("💡 Tip: Use 'gh migration-validator inspect <repo-name>' for detailed analysis")
+	}
+}
+
+// PrintValidationResults prints a formatted report for single repository validation
 func (mv *MigrationValidator) PrintValidationResults(results []ValidationResult) {
 	// Print header
 	pterm.DefaultHeader.WithFullWidth().WithBackgroundStyle(pterm.NewStyle(pterm.BgBlue)).WithTextStyle(pterm.NewStyle(pterm.FgWhite)).Println("📊 Migration Validation Report")
@@ -505,4 +875,127 @@ func (mv *MigrationValidator) PrintMarkdownTable(results []ValidationResult) {
 	fmt.Println("```")
 
 	pterm.Info.Println("💡 Tip: You can select and copy the entire markdown section above to paste into documentation, issues, or pull requests!")
+}
+
+// GetSessionDir returns the directory where sessions are stored
+func GetSessionDir() (string, error) {
+	// Use current working directory instead of user home directory
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current working directory: %w", err)
+	}
+
+	sessionDir := filepath.Join(currentDir, ".ghmv", "sessions")
+
+	// Create directory if it doesn't exist
+	if err := os.MkdirAll(sessionDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create session directory: %w", err)
+	}
+
+	return sessionDir, nil
+}
+
+// SaveSession saves the batch results to a session file
+func (mv *MigrationValidator) SaveSession() (string, error) {
+	if mv.BatchResult == nil {
+		return "", fmt.Errorf("no batch result to save")
+	}
+
+	sessionDir, err := GetSessionDir()
+	if err != nil {
+		return "", err
+	}
+
+	// Create timestamp-based filename
+	timestamp := mv.BatchResult.Timestamp.Format("2006-01-02_15-04-05")
+	filename := fmt.Sprintf("%s.json", timestamp)
+	sessionPath := filepath.Join(sessionDir, filename)
+
+	// Save as JSON
+	data, err := json.MarshalIndent(mv.BatchResult, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal batch result: %w", err)
+	}
+
+	if err := os.WriteFile(sessionPath, data, 0644); err != nil {
+		return "", fmt.Errorf("failed to write session file: %w", err)
+	}
+
+	// Also save as "latest.json" for easy access
+	latestPath := filepath.Join(sessionDir, "latest.json")
+	if err := os.WriteFile(latestPath, data, 0644); err != nil {
+		// Don't fail if we can't write latest, just warn
+		pterm.Warning.Printf("Could not update latest session: %v\n", err)
+	}
+
+	return sessionPath, nil
+}
+
+// LoadSession loads a batch result from a session file
+func LoadSession(sessionPath string) (*BatchValidationResult, error) {
+	// Handle special cases
+	if sessionPath == "latest" {
+		sessionDir, err := GetSessionDir()
+		if err != nil {
+			return nil, err
+		}
+		sessionPath = filepath.Join(sessionDir, "latest.json")
+	}
+
+	// Check if file exists
+	if _, err := os.Stat(sessionPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("session file does not exist: %s", sessionPath)
+	}
+
+	// Read and unmarshal
+	data, err := os.ReadFile(sessionPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read session file: %w", err)
+	}
+
+	var result BatchValidationResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse session file: %w", err)
+	}
+
+	return &result, nil
+}
+
+// ShouldSaveSession determines if a session should be automatically saved
+func (mv *MigrationValidator) ShouldSaveSession() bool {
+	if mv.BatchResult == nil {
+		return false
+	}
+
+	// Always save in CI or non-interactive environments
+	if os.Getenv("CI") != "" || !isInteractiveTerminal() {
+		return true
+	}
+
+	// Save if there are any issues (failures or warnings)
+	return mv.BatchResult.Summary.Failed > 0 || mv.BatchResult.Summary.Warnings > 0
+}
+
+// isInteractiveTerminal checks if we're running in an interactive terminal
+func isInteractiveTerminal() bool {
+	// Simple check - in a real implementation you might want more sophisticated detection
+	return os.Getenv("TERM") != "" && os.Getenv("CI") == ""
+}
+
+// AutoSaveSessionIfNeeded saves the session automatically based on smart rules
+func (mv *MigrationValidator) AutoSaveSessionIfNeeded() {
+	if !mv.ShouldSaveSession() {
+		return
+	}
+
+	sessionPath, err := mv.SaveSession()
+	if err != nil {
+		pterm.Warning.Printf("Failed to save session: %v\n", err)
+		return
+	}
+
+	if mv.BatchResult.Summary.Failed > 0 || mv.BatchResult.Summary.Warnings > 0 {
+		pterm.Info.Printf("💾 Session saved: %s\n", sessionPath)
+		pterm.Info.Println("💡 Use 'gh migration-validator inspect <repo-name>' for detailed analysis")
+	}
 }
