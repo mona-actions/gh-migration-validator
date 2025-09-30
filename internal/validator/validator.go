@@ -56,8 +56,8 @@ func (mv *MigrationValidator) ValidateMigration(sourceOwner, sourceRepo, targetO
 	multi := pterm.DefaultMultiPrinter
 
 	// Create spinners for source and target with separate writers from the multi printer
-	sourceSpinner, _ := pterm.DefaultSpinner.WithWriter(multi.NewWriter()).Start("Preparing source data retrieval...")
-	targetSpinner, _ := pterm.DefaultSpinner.WithWriter(multi.NewWriter()).Start("Preparing target data retrieval...")
+	sourceSpinner, _ := pterm.DefaultSpinner.WithWriter(multi.NewWriter()).Start(fmt.Sprintf("Preparing to retrieve data from %s/%s...", sourceOwner, sourceRepo))
+	targetSpinner, _ := pterm.DefaultSpinner.WithWriter(multi.NewWriter()).Start(fmt.Sprintf("Preparing to retrieve data from %s/%s...", targetOwner, targetRepo))
 
 	// Start the multi printer
 	multi.Start()
@@ -111,61 +111,61 @@ func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.
 	mv.SourceData.Name = name
 
 	// Get issue count
-	spinner.UpdateText("Fetching issues from [Source]...")
+	spinner.UpdateText(fmt.Sprintf("Fetching issues from %s/%s...", owner, name))
 	issues, err := mv.api.GetIssueCount(api.SourceClient, owner, name)
 	if err != nil {
-		spinner.Fail("Failed to fetch issues from [Source]")
+		spinner.Fail(fmt.Sprintf("Failed to fetch issues from %s/%s", owner, name))
 		return fmt.Errorf("failed to get source issue count: %w", err)
 	}
 	mv.SourceData.Issues = issues
 
 	// Get PR counts
-	spinner.UpdateText("Fetching pull requests from [Source]...")
+	spinner.UpdateText(fmt.Sprintf("Fetching pull requests from %s/%s...", owner, name))
 	prCounts, err := mv.api.GetPRCounts(api.SourceClient, owner, name)
 	if err != nil {
-		spinner.Fail("Failed to fetch pull requests from [Source]")
+		spinner.Fail(fmt.Sprintf("Failed to fetch pull requests from %s/%s", owner, name))
 		return fmt.Errorf("failed to get source PR counts: %w", err)
 	}
 	mv.SourceData.PRs = prCounts
 
 	// Get tag count
-	spinner.UpdateText("Fetching tags from [Source]...")
+	spinner.UpdateText(fmt.Sprintf("Fetching tags from %s/%s...", owner, name))
 	tags, err := mv.api.GetTagCount(api.SourceClient, owner, name)
 	if err != nil {
-		spinner.Fail("Failed to fetch tags from [Source]")
+		spinner.Fail(fmt.Sprintf("Failed to fetch tags from %s/%s", owner, name))
 		return fmt.Errorf("failed to get source tag count: %w", err)
 	}
 	mv.SourceData.Tags = tags
 
 	// Get release count
-	spinner.UpdateText("Fetching releases from [Source]...")
+	spinner.UpdateText(fmt.Sprintf("Fetching releases from %s/%s...", owner, name))
 	releases, err := mv.api.GetReleaseCount(api.SourceClient, owner, name)
 	if err != nil {
-		spinner.Fail("Failed to fetch releases from [Source]")
+		spinner.Fail(fmt.Sprintf("Failed to fetch releases from %s/%s", owner, name))
 		return fmt.Errorf("failed to get source release count: %w", err)
 	}
 	mv.SourceData.Releases = releases
 
 	// Get commit count
-	spinner.UpdateText("Fetching commit count from [Source]...")
+	spinner.UpdateText(fmt.Sprintf("Fetching commit count from %s/%s...", owner, name))
 	commitCount, err := mv.api.GetCommitCount(api.SourceClient, owner, name)
 	if err != nil {
-		spinner.Fail("Failed to fetch commit count from [Source]")
+		spinner.Fail(fmt.Sprintf("Failed to fetch commit count from %s/%s", owner, name))
 		return fmt.Errorf("failed to get source commit count: %w", err)
 	}
 	mv.SourceData.CommitCount = commitCount
 
 	// Get latest commit hash
-	spinner.UpdateText("Fetching latest commit hash from [Source]...")
+	spinner.UpdateText(fmt.Sprintf("Fetching latest commit hash from %s/%s...", owner, name))
 	latestCommitSHA, err := mv.api.GetLatestCommitHash(api.SourceClient, owner, name)
 	if err != nil {
-		spinner.Fail("Failed to fetch latest commit hash from [Source]")
+		spinner.Fail(fmt.Sprintf("Failed to fetch latest commit hash from %s/%s", owner, name))
 		return fmt.Errorf("failed to get source latest commit hash: %w", err)
 	}
 	mv.SourceData.LatestCommitSHA = latestCommitSHA
 
 	duration := time.Since(startTime)
-	spinner.Success(fmt.Sprintf("Source retrieved successfully (%v)", duration))
+	spinner.Success(fmt.Sprintf("%s/%s retrieved successfully (%v)", owner, name, duration))
 
 	return nil
 }
@@ -178,61 +178,61 @@ func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.
 	mv.TargetData.Name = name
 
 	// Get issue count
-	spinner.UpdateText("Fetching issues from [Target]...")
+	spinner.UpdateText(fmt.Sprintf("Fetching issues from %s/%s...", owner, name))
 	issues, err := mv.api.GetIssueCount(api.TargetClient, owner, name)
 	if err != nil {
-		spinner.Fail("Failed to fetch issues from [Target]")
+		spinner.Fail(fmt.Sprintf("Failed to fetch issues from %s/%s", owner, name))
 		return fmt.Errorf("failed to get target issue count: %w", err)
 	}
 	mv.TargetData.Issues = issues
 
 	// Get PR counts
-	spinner.UpdateText("Fetching pull requests from [Target]...")
+	spinner.UpdateText(fmt.Sprintf("Fetching pull requests from %s/%s...", owner, name))
 	prCounts, err := mv.api.GetPRCounts(api.TargetClient, owner, name)
 	if err != nil {
-		spinner.Fail("Failed to fetch pull requests from [Target]")
+		spinner.Fail(fmt.Sprintf("Failed to fetch pull requests from %s/%s", owner, name))
 		return fmt.Errorf("failed to get target PR counts: %w", err)
 	}
 	mv.TargetData.PRs = prCounts
 
 	// Get tag count
-	spinner.UpdateText("Fetching tags from [Target]...")
+	spinner.UpdateText(fmt.Sprintf("Fetching tags from %s/%s...", owner, name))
 	tags, err := mv.api.GetTagCount(api.TargetClient, owner, name)
 	if err != nil {
-		spinner.Fail("Failed to fetch tags from [Target]")
+		spinner.Fail(fmt.Sprintf("Failed to fetch tags from %s/%s", owner, name))
 		return fmt.Errorf("failed to get target tag count: %w", err)
 	}
 	mv.TargetData.Tags = tags
 
 	// Get release count
-	spinner.UpdateText("Fetching releases from [Target]...")
+	spinner.UpdateText(fmt.Sprintf("Fetching releases from %s/%s...", owner, name))
 	releases, err := mv.api.GetReleaseCount(api.TargetClient, owner, name)
 	if err != nil {
-		spinner.Fail("Failed to fetch releases from [Target]")
+		spinner.Fail(fmt.Sprintf("Failed to fetch releases from %s/%s", owner, name))
 		return fmt.Errorf("failed to get target release count: %w", err)
 	}
 	mv.TargetData.Releases = releases
 
 	// Get commit count
-	spinner.UpdateText("Fetching commit count from [Target]...")
+	spinner.UpdateText(fmt.Sprintf("Fetching commit count from %s/%s...", owner, name))
 	commitCount, err := mv.api.GetCommitCount(api.TargetClient, owner, name)
 	if err != nil {
-		spinner.Fail("Failed to fetch commit count from [Target]")
+		spinner.Fail(fmt.Sprintf("Failed to fetch commit count from %s/%s", owner, name))
 		return fmt.Errorf("failed to get target commit count: %w", err)
 	}
 	mv.TargetData.CommitCount = commitCount
 
 	// Get latest commit hash
-	spinner.UpdateText("Fetching latest commit hash from [Target]...")
+	spinner.UpdateText(fmt.Sprintf("Fetching latest commit hash from %s/%s...", owner, name))
 	latestCommitSHA, err := mv.api.GetLatestCommitHash(api.TargetClient, owner, name)
 	if err != nil {
-		spinner.Fail("Failed to fetch latest commit hash from [Target]")
+		spinner.Fail(fmt.Sprintf("Failed to fetch latest commit hash from %s/%s", owner, name))
 		return fmt.Errorf("failed to get target latest commit hash: %w", err)
 	}
 	mv.TargetData.LatestCommitSHA = latestCommitSHA
 
 	duration := time.Since(startTime)
-	spinner.Success(fmt.Sprintf("Target retrieved successfully (%v)", duration))
+	spinner.Success(fmt.Sprintf("%s/%s retrieved successfully (%v)", owner, name, duration))
 
 	return nil
 }
