@@ -181,10 +181,10 @@ func (mv *MigrationValidator) SetSourceDataFromExport(exportData *RepositoryData
 }
 
 // ValidateFromExport performs validation against target using pre-loaded source data from export
-func (mv *MigrationValidator) ValidateFromExport(targetOwner, targetRepo string) error {
+func (mv *MigrationValidator) ValidateFromExport(targetOwner, targetRepo string) ([]ValidationResult, error) {
 	// Validate that source data is already loaded
 	if mv.SourceData == nil {
-		return fmt.Errorf("source data not loaded - call SetSourceDataFromExport first")
+		return nil, fmt.Errorf("source data not loaded - call SetSourceDataFromExport first")
 	}
 
 	fmt.Println("Starting migration validation from export...")
@@ -197,11 +197,15 @@ func (mv *MigrationValidator) ValidateFromExport(targetOwner, targetRepo string)
 	// Retrieve target data using existing functionality
 	err := mv.retrieveTarget(targetOwner, targetRepo, spinner)
 	if err != nil {
-		return fmt.Errorf("failed to retrieve target data: %w", err)
+		return nil, fmt.Errorf("failed to retrieve target data: %w", err)
 	}
 
+	// Compare and validate the data (same as ValidateMigration)
+	fmt.Println("\nValidating migration data...")
+	results := mv.validateRepositoryData()
+
 	fmt.Println("Migration validation completed!")
-	return nil
+	return results, nil
 }
 
 // retrieveTarget retrieves all repository data from the target repository
@@ -269,11 +273,6 @@ func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.
 	spinner.Success(fmt.Sprintf("%s/%s retrieved successfully (%v)", owner, name, duration))
 
 	return nil
-}
-
-// ValidateRepositoryData is a public wrapper for validateRepositoryData
-func (mv *MigrationValidator) ValidateRepositoryData() []ValidationResult {
-	return mv.validateRepositoryData()
 }
 
 // validateRepositoryData compares source and target repository data and returns validation results

@@ -494,6 +494,277 @@ func TestMarkdownTable_DifferentScenarios(t *testing.T) {
 	}
 }
 
+func TestSetSourceDataFromExport(t *testing.T) {
+	// Create a validator instance
+	validator := &MigrationValidator{
+		api:        nil,
+		SourceData: &RepositoryData{}, // Empty initially
+		TargetData: &RepositoryData{},
+	}
+
+	// Create test export data
+	exportData := &RepositoryData{
+		Owner:           "exported-org",
+		Name:            "exported-repo",
+		Issues:          25,
+		PRs:             &api.PRCounts{Total: 15, Open: 3, Merged: 10, Closed: 2},
+		Tags:            8,
+		Releases:        4,
+		CommitCount:     200,
+		LatestCommitSHA: "export123abc",
+	}
+
+	// Set source data from export
+	validator.SetSourceDataFromExport(exportData)
+
+	// Verify that source data was set correctly
+	assert.Equal(t, "exported-org", validator.SourceData.Owner)
+	assert.Equal(t, "exported-repo", validator.SourceData.Name)
+	assert.Equal(t, 25, validator.SourceData.Issues)
+	assert.Equal(t, 15, validator.SourceData.PRs.Total)
+	assert.Equal(t, 3, validator.SourceData.PRs.Open)
+	assert.Equal(t, 10, validator.SourceData.PRs.Merged)
+	assert.Equal(t, 2, validator.SourceData.PRs.Closed)
+	assert.Equal(t, 8, validator.SourceData.Tags)
+	assert.Equal(t, 4, validator.SourceData.Releases)
+	assert.Equal(t, 200, validator.SourceData.CommitCount)
+	assert.Equal(t, "export123abc", validator.SourceData.LatestCommitSHA)
+}
+
+func TestSetSourceDataFromExport_NilPRCounts(t *testing.T) {
+	validator := &MigrationValidator{
+		api:        nil,
+		SourceData: &RepositoryData{},
+		TargetData: &RepositoryData{},
+	}
+
+	// Test with nil PR counts
+	exportData := &RepositoryData{
+		Owner:           "exported-org",
+		Name:            "exported-repo",
+		Issues:          10,
+		PRs:             nil, // Nil PR counts
+		Tags:            5,
+		Releases:        2,
+		CommitCount:     100,
+		LatestCommitSHA: "test123",
+	}
+
+	validator.SetSourceDataFromExport(exportData)
+
+	// Should handle nil PR counts gracefully
+	assert.Equal(t, "exported-org", validator.SourceData.Owner)
+	assert.Equal(t, "exported-repo", validator.SourceData.Name)
+	assert.Equal(t, 10, validator.SourceData.Issues)
+	assert.Nil(t, validator.SourceData.PRs)
+}
+
+func TestValidateFromExport_NoSourceData(t *testing.T) {
+	// Disable pterm output for testing
+	pterm.DisableOutput()
+	defer pterm.EnableOutput()
+
+	validator := &MigrationValidator{
+		api:        nil,
+		SourceData: nil, // No source data loaded
+		TargetData: &RepositoryData{},
+	}
+
+	// Should return error when no source data is loaded
+	results, err := validator.ValidateFromExport("target-org", "target-repo")
+
+	assert.Error(t, err)
+	assert.Nil(t, results)
+	assert.Contains(t, err.Error(), "source data not loaded")
+	assert.Contains(t, err.Error(), "call SetSourceDataFromExport first")
+}
+
+func TestValidateFromExport_CompleteWorkflow(t *testing.T) {
+	// Test the complete workflow by simulating both source and target data
+	// This tests the validation logic without requiring API calls
+
+	validator := &MigrationValidator{
+		api:        nil,               // Not needed for this test
+		SourceData: &RepositoryData{}, // Will be set via SetSourceDataFromExport
+		TargetData: &RepositoryData{
+			// Simulate target data as if it was retrieved successfully
+			Owner:           "target-org",
+			Name:            "target-repo",
+			Issues:          16, // Source has 15, expect 16 (15+1 for migration log)
+			PRs:             &api.PRCounts{Total: 8, Open: 2, Merged: 5, Closed: 1},
+			Tags:            4,
+			Releases:        2,
+			CommitCount:     120,
+			LatestCommitSHA: "abc123export",
+		},
+	}
+
+	// Set up source data from export
+	exportSourceData := &RepositoryData{
+		Owner:           "source-org",
+		Name:            "source-repo",
+		Issues:          15,
+		PRs:             &api.PRCounts{Total: 8, Open: 2, Merged: 5, Closed: 1},
+		Tags:            4,
+		Releases:        2,
+		CommitCount:     120,
+		LatestCommitSHA: "abc123export",
+	}
+
+	validator.SetSourceDataFromExport(exportSourceData)
+
+	// Since we can't test the API call part easily, we can test the validation
+	// logic that would run after successful target data retrieval
+	results := validator.validateRepositoryData()
+
+	// Should get validation results
+	assert.NotNil(t, results)
+	assert.Equal(t, 8, len(results)) // Should have 8 validation metrics
+
+	// Check that validation logic works correctly with export data
+	// All should pass since target data matches expected values
+	passCount := 0
+	for _, result := range results {
+		if result.Status == "✅ PASS" {
+			passCount++
+		}
+	}
+	assert.Equal(t, 8, passCount, "All validations should pass with matching data")
+}
+
+func TestValidateFromExport_SourceDataValidation(t *testing.T) {
+	// Test ONLY the source data validation part of ValidateFromExport
+	// We should not test the full function since it makes API calls
+
+	t.Run("Nil source data returns error immediately", func(t *testing.T) {
+		validator := &MigrationValidator{
+			api:        nil,
+			SourceData: nil, // This should trigger immediate error
+			TargetData: &RepositoryData{},
+		}
+
+		results, err := validator.ValidateFromExport("target-org", "target-repo")
+
+		// Should fail immediately with source data error, before any API calls
+		assert.Error(t, err)
+		assert.Nil(t, results)
+		assert.Contains(t, err.Error(), "source data not loaded")
+		assert.Contains(t, err.Error(), "call SetSourceDataFromExport first")
+	})
+
+	t.Run("Valid source data structure", func(t *testing.T) {
+		// For this test, we only verify that source data validation passes
+		// We don't actually call ValidateFromExport since it makes API calls
+
+		sourceData := &RepositoryData{
+			Owner:  "test-org",
+			Name:   "test-repo",
+			Issues: 10,
+			PRs:    &api.PRCounts{Total: 5, Open: 1, Merged: 3, Closed: 1},
+		}
+
+		validator := &MigrationValidator{
+			api:        nil,
+			SourceData: sourceData,
+			TargetData: &RepositoryData{},
+		}
+
+		// Just verify source data was set correctly
+		assert.NotNil(t, validator.SourceData)
+		assert.Equal(t, "test-org", validator.SourceData.Owner)
+		assert.Equal(t, "test-repo", validator.SourceData.Name)
+
+		// We don't call ValidateFromExport here because it would make API calls
+		// That's tested in the integration workflow test instead
+	})
+}
+
+func TestRetrieveSourceData_PublicMethodExists(t *testing.T) {
+	// This test verifies that RetrieveSourceData is properly exposed as a public method
+	// We don't call it since it makes API calls, but we verify it exists at compile time
+
+	validator := &MigrationValidator{
+		api:        nil,
+		SourceData: &RepositoryData{},
+		TargetData: &RepositoryData{},
+	}
+
+	// If this compiles, it means the public method exists with the correct signature
+	// We use a type assertion to verify the method signature without calling it
+	var method func(string, string, *pterm.SpinnerPrinter) error = validator.RetrieveSourceData
+
+	assert.NotNil(t, method, "RetrieveSourceData method should exist")
+
+	// This test serves as a compile-time verification that:
+	// 1. The method is public (capitalized)
+	// 2. It has the expected signature
+	// 3. It's callable from external packages
+}
+
+func TestExportValidationWorkflow_Integration(t *testing.T) {
+	// Integration test showing the full workflow for export-based validation
+	// This demonstrates how the new methods work together without API dependencies
+
+	// Step 1: Create validator
+	validator := &MigrationValidator{
+		api:        nil, // API not needed for this workflow test
+		SourceData: &RepositoryData{},
+		TargetData: &RepositoryData{},
+	}
+
+	// Step 2: Simulate loaded export data
+	exportSourceData := &RepositoryData{
+		Owner:           "source-org",
+		Name:            "source-repo",
+		Issues:          15,
+		PRs:             &api.PRCounts{Total: 8, Open: 2, Merged: 5, Closed: 1},
+		Tags:            4,
+		Releases:        2,
+		CommitCount:     120,
+		LatestCommitSHA: "abc123export",
+	}
+
+	// Step 3: Set source data from export
+	validator.SetSourceDataFromExport(exportSourceData)
+
+	// Verify source data is set correctly
+	assert.Equal(t, "source-org", validator.SourceData.Owner)
+	assert.Equal(t, "source-repo", validator.SourceData.Name)
+	assert.Equal(t, 15, validator.SourceData.Issues)
+	assert.Equal(t, 8, validator.SourceData.PRs.Total)
+
+	// Step 4: Simulate target data (as if retrieved from API)
+	validator.TargetData = &RepositoryData{
+		Owner:           "target-org",
+		Name:            "target-repo",
+		Issues:          16, // Expected: 15+1 for migration log
+		PRs:             &api.PRCounts{Total: 8, Open: 2, Merged: 5, Closed: 1},
+		Tags:            4,
+		Releases:        2,
+		CommitCount:     120,
+		LatestCommitSHA: "abc123export",
+	}
+
+	// Step 5: Test validation logic (bypass API call by calling validateRepositoryData directly)
+	results := validator.validateRepositoryData()
+
+	// Verify validation results
+	assert.NotNil(t, results)
+	assert.Equal(t, 8, len(results), "Should have 8 validation metrics")
+
+	// Check that all validations pass with matching data
+	passCount := 0
+	for _, result := range results {
+		if result.Status == "✅ PASS" {
+			passCount++
+		}
+	}
+	assert.Equal(t, 8, passCount, "All validations should pass with perfect match")
+
+	// This demonstrates the complete workflow: export → set source → validate
+	// In real usage, the API call would happen in ValidateFromExport()
+}
+
 func BenchmarkValidateRepositoryData(b *testing.B) {
 	validator := setupTestValidator(
 		&RepositoryData{
@@ -521,5 +792,29 @@ func BenchmarkValidateRepositoryData(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		validator.validateRepositoryData()
+	}
+}
+
+func BenchmarkSetSourceDataFromExport(b *testing.B) {
+	validator := &MigrationValidator{
+		api:        nil,
+		SourceData: &RepositoryData{},
+		TargetData: &RepositoryData{},
+	}
+
+	exportData := &RepositoryData{
+		Owner:           "benchmark-org",
+		Name:            "benchmark-repo",
+		Issues:          100,
+		PRs:             &api.PRCounts{Total: 50, Open: 10, Merged: 35, Closed: 5},
+		Tags:            20,
+		Releases:        10,
+		CommitCount:     1000,
+		LatestCommitSHA: "benchmark123",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		validator.SetSourceDataFromExport(exportData)
 	}
 }

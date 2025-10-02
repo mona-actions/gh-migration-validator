@@ -93,15 +93,12 @@ The validation compares the same metrics as the standard validate command:
 		// Set source data from export instead of fetching from API
 		migrationValidator.SetSourceDataFromExport(&exportData.Repository)
 
-		// Perform validation against target
-		err = migrationValidator.ValidateFromExport(targetOrganization, targetRepo)
+		// Perform validation against target (now returns results directly)
+		results, err := migrationValidator.ValidateFromExport(targetOrganization, targetRepo)
 		if err != nil {
 			fmt.Printf("Validation failed: %v\n", err)
 			os.Exit(1)
 		}
-
-		// Perform the actual validation comparison
-		results := migrationValidator.ValidateRepositoryData()
 
 		// Display results using existing method
 		migrationValidator.PrintValidationResults(results)
