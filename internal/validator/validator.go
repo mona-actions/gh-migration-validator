@@ -175,6 +175,35 @@ func (mv *MigrationValidator) RetrieveSourceData(owner, name string, spinner *pt
 	return mv.retrieveSource(owner, name, spinner)
 }
 
+// SetSourceDataFromExport sets the source data from an export instead of fetching from API
+func (mv *MigrationValidator) SetSourceDataFromExport(exportData *RepositoryData) {
+	mv.SourceData = exportData
+}
+
+// ValidateFromExport performs validation against target using pre-loaded source data from export
+func (mv *MigrationValidator) ValidateFromExport(targetOwner, targetRepo string) error {
+	// Validate that source data is already loaded
+	if mv.SourceData == nil {
+		return fmt.Errorf("source data not loaded - call SetSourceDataFromExport first")
+	}
+
+	fmt.Println("Starting migration validation from export...")
+	fmt.Printf("Source: %s/%s (from export) | Target: %s/%s\n",
+		mv.SourceData.Owner, mv.SourceData.Name, targetOwner, targetRepo)
+
+	// Create a spinner for target data retrieval
+	spinner, _ := pterm.DefaultSpinner.Start(fmt.Sprintf("Fetching target data from %s/%s...", targetOwner, targetRepo))
+
+	// Retrieve target data using existing functionality
+	err := mv.retrieveTarget(targetOwner, targetRepo, spinner)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve target data: %w", err)
+	}
+
+	fmt.Println("Migration validation completed!")
+	return nil
+}
+
 // retrieveTarget retrieves all repository data from the target repository
 func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.SpinnerPrinter) error {
 	startTime := time.Now()
@@ -240,6 +269,11 @@ func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.
 	spinner.Success(fmt.Sprintf("%s/%s retrieved successfully (%v)", owner, name, duration))
 
 	return nil
+}
+
+// ValidateRepositoryData is a public wrapper for validateRepositoryData
+func (mv *MigrationValidator) ValidateRepositoryData() []ValidationResult {
+	return mv.validateRepositoryData()
 }
 
 // validateRepositoryData compares source and target repository data and returns validation results
