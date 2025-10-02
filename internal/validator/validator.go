@@ -170,6 +170,11 @@ func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.
 	return nil
 }
 
+// RetrieveSourceData is a public wrapper for retrieveSource for use by the export package
+func (mv *MigrationValidator) RetrieveSourceData(owner, name string, spinner *pterm.SpinnerPrinter) error {
+	return mv.retrieveSource(owner, name, spinner)
+}
+
 // retrieveTarget retrieves all repository data from the target repository
 func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.SpinnerPrinter) error {
 	startTime := time.Now()

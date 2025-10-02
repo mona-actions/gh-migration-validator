@@ -79,6 +79,67 @@ For GitHub Enterprise Server:
 export GHMV_SOURCE_HOSTNAME="https://github.example.com"
 ```
 
+## Export Functionality
+
+The tool also provides an export command to capture repository data at a specific point in time, which can be useful for creating snapshots before and after migrations.
+
+### Export Usage
+
+```bash
+gh migration-validator export \
+  --source-organization "source-org" \
+  --source-repo "my-repo" \
+  --source-token "ghp_xxx" \
+  --format json \
+  --output ".exports/my-export.json"
+```
+
+### Export Options
+
+- `--source-organization` (required): Source organization name
+- `--source-repo` (required): Source repository name  
+- `--source-token` (required): GitHub token with read permissions
+- `--source-hostname` (optional): GitHub Enterprise Server URL
+- `--format` (optional): Export format - `json` or `csv` (default: `json`)
+- `--output` (optional): Output file path (auto-generated if not specified)
+
+### Export Output Formats
+
+**JSON Format:**
+
+```json
+{
+  "export_timestamp": "2025-10-02T14:49:08Z",
+  "repository_data": {
+    "owner": "mona-actions",
+    "name": "my-repo",
+    "issues": 42,
+    "pull_requests": {
+      "open": 5,
+      "closed": 10, 
+      "merged": 15,
+      "total": 30
+    },
+    "tags": 8,
+    "releases": 3,
+    "commits": 150,
+    "latest_commit_sha": "abc123def456"
+  }
+}
+```
+
+**CSV Format:**
+
+Contains the same data in CSV format with headers for easy analysis in spreadsheet applications.
+
+### Default Export Location
+
+When no output file is specified, exports are automatically saved to `.exports/` directory with timestamped filenames:
+
+- `.exports/{owner}_{repo}_export_{timestamp}.{format}`
+
+Example: `.exports/mona-actions_my-repo_export_20251002_144908.json`
+
 ## What Gets Validated
 
 The tool compares the following metrics between source and target repositories:
@@ -99,9 +160,11 @@ The tool compares the following metrics between source and target repositories:
 ## Output Formats
 
 ### Console Output
+
 The tool provides a formatted table with colored status indicators and a summary.
 
 ### Markdown Output
+
 Use the `--markdown-table` flag to generate copy-paste ready markdown for documentation.
 
 ## Dependencies
