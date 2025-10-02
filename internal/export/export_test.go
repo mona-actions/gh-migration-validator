@@ -44,14 +44,14 @@ func TestGenerateExportFileName(t *testing.T) {
 			repo:      "myrepo",
 			format:    "json",
 			timestamp: time.Date(2025, 10, 2, 14, 30, 45, 0, time.UTC),
-			expected:  "myorg_myrepo_export_20251002_143045.json",
+			expected:  filepath.Join(".exports", "myorg_myrepo_export_20251002_143045.json"),
 		},
 		{
 			owner:     "github",
 			repo:      "docs",
 			format:    "csv",
 			timestamp: time.Date(2025, 12, 25, 9, 15, 30, 0, time.UTC),
-			expected:  "github_docs_export_20251225_091530.csv",
+			expected:  filepath.Join(".exports", "github_docs_export_20251225_091530.csv"),
 		},
 	}
 
