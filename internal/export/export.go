@@ -134,14 +134,12 @@ func exportToCSV(data ExportData, filename string) error {
 	}
 
 	// Write data row
-	var prOpen, prClosed, prMerged, prTotal string
+	prOpen, prClosed, prMerged, prTotal := "0", "0", "0", "0"
 	if data.Repository.PRs != nil {
 		prOpen = fmt.Sprintf("%d", data.Repository.PRs.Open)
 		prClosed = fmt.Sprintf("%d", data.Repository.PRs.Closed)
 		prMerged = fmt.Sprintf("%d", data.Repository.PRs.Merged)
 		prTotal = fmt.Sprintf("%d", data.Repository.PRs.Total)
-	} else {
-		prOpen, prClosed, prMerged, prTotal = "0", "0", "0", "0"
 	}
 
 	record := []string{
