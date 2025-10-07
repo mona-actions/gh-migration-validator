@@ -14,8 +14,8 @@ import (
 type ValidationStatus int
 
 const (
-	ValidationStatusMessageFail = "❌ FAIL"
 	ValidationStatusMessagePass = "✅ PASS"
+	ValidationStatusMessageFail = "❌ FAIL"
 	ValidationStatusMessageWarn = "⚠️ WARN"
 )
 
@@ -485,12 +485,12 @@ func (mv *MigrationValidator) PrintValidationResults(results []ValidationResult)
 	warnCount := 0
 
 	for _, result := range results {
-		switch result.Status {
-		case "✅ PASS":
+		switch result.StatusType {
+		case ValidationStatusPass:
 			passCount++
-		case "❌ FAIL":
+		case ValidationStatusFail:
 			failCount++
-		case "⚠️ WARN":
+		case ValidationStatusWarn:
 			warnCount++
 		}
 	}

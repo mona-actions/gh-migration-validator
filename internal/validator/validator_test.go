@@ -268,21 +268,24 @@ func TestPrintValidationResults(t *testing.T) {
 			Metric:     "Issues",
 			SourceVal:  10,
 			TargetVal:  11,
-			Status:     "✅ PASS",
+			Status:     ValidationStatusMessagePass,
+			StatusType: ValidationStatusPass,
 			Difference: 0,
 		},
 		{
 			Metric:     "PRs",
 			SourceVal:  5,
 			TargetVal:  3,
-			Status:     "❌ FAIL",
+			Status:     ValidationStatusMessageFail,
+			StatusType: ValidationStatusFail,
 			Difference: 2,
 		},
 		{
 			Metric:     "Tags",
 			SourceVal:  3,
 			TargetVal:  5,
-			Status:     "⚠️ WARN",
+			Status:     ValidationStatusMessageWarn,
+			StatusType: ValidationStatusWarn,
 			Difference: -2,
 		},
 	}
@@ -315,6 +318,7 @@ func TestPrintMarkdownTable(t *testing.T) {
 			SourceVal:  10,
 			TargetVal:  11,
 			Status:     "✅ PASS",
+			StatusType: ValidationStatusPass,
 			Difference: 0,
 		},
 		{
@@ -322,6 +326,7 @@ func TestPrintMarkdownTable(t *testing.T) {
 			SourceVal:  5,
 			TargetVal:  3,
 			Status:     "❌ FAIL",
+			StatusType: ValidationStatusFail,
 			Difference: 2,
 		},
 		{
@@ -329,6 +334,7 @@ func TestPrintMarkdownTable(t *testing.T) {
 			SourceVal:  3,
 			TargetVal:  5,
 			Status:     "⚠️ WARN",
+			StatusType: ValidationStatusWarn,
 			Difference: -2,
 		},
 		{
@@ -336,6 +342,7 @@ func TestPrintMarkdownTable(t *testing.T) {
 			SourceVal:  "abc123",
 			TargetVal:  "def456",
 			Status:     "❌ FAIL",
+			StatusType: ValidationStatusFail,
 			Difference: 0,
 		},
 	}
@@ -527,8 +534,8 @@ func TestMarkdownTable_DifferentScenarios(t *testing.T) {
 		{
 			name: "All passing",
 			results: []ValidationResult{
-				{Metric: "Issues", SourceVal: 10, TargetVal: 11, Status: "✅ PASS", Difference: 0},
-				{Metric: "PRs", SourceVal: 5, TargetVal: 5, Status: "✅ PASS", Difference: 0},
+				{Metric: "Issues", SourceVal: 10, TargetVal: 11, Status: "✅ PASS", StatusType: ValidationStatusPass, Difference: 0},
+				{Metric: "PRs", SourceVal: 5, TargetVal: 5, Status: "✅ PASS", StatusType: ValidationStatusPass, Difference: 0},
 			},
 			expected: []string{
 				"- **Passed:** 2",
@@ -540,8 +547,8 @@ func TestMarkdownTable_DifferentScenarios(t *testing.T) {
 		{
 			name: "Mixed results",
 			results: []ValidationResult{
-				{Metric: "Issues", SourceVal: 10, TargetVal: 9, Status: "❌ FAIL", Difference: 2},
-				{Metric: "PRs", SourceVal: 5, TargetVal: 6, Status: "⚠️ WARN", Difference: -1},
+				{Metric: "Issues", SourceVal: 10, TargetVal: 9, Status: "❌ FAIL", StatusType: ValidationStatusFail, Difference: 2},
+				{Metric: "PRs", SourceVal: 5, TargetVal: 6, Status: "⚠️ WARN", StatusType: ValidationStatusWarn, Difference: -1},
 			},
 			expected: []string{
 				"- **Passed:** 0",
@@ -553,8 +560,8 @@ func TestMarkdownTable_DifferentScenarios(t *testing.T) {
 		{
 			name: "Only warnings",
 			results: []ValidationResult{
-				{Metric: "Issues", SourceVal: 10, TargetVal: 12, Status: "⚠️ WARN", Difference: -1},
-				{Metric: "PRs", SourceVal: 5, TargetVal: 6, Status: "⚠️ WARN", Difference: -1},
+				{Metric: "Issues", SourceVal: 10, TargetVal: 12, Status: "⚠️ WARN", StatusType: ValidationStatusWarn, Difference: -1},
+				{Metric: "PRs", SourceVal: 5, TargetVal: 6, Status: "⚠️ WARN", StatusType: ValidationStatusWarn, Difference: -1},
 			},
 			expected: []string{
 				"- **Passed:** 0",
