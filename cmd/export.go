@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"fmt"
+	"mona-actions/gh-migration-validator/internal/api"
 	"mona-actions/gh-migration-validator/internal/export"
 	"mona-actions/gh-migration-validator/internal/validator"
 	"os"
@@ -67,14 +68,19 @@ The data can be exported in JSON or CSV format with a timestamp.`,
 			os.Exit(1)
 		}
 
-		initializeAPI()
+		// Initialize API with source-only clients
+		ghAPI, err := api.NewSourceOnlyAPI()
+		if err != nil {
+			fmt.Printf("Failed to initialize source API: %v\n", err)
+			os.Exit(1)
+		}
 
 		// Create validator and export source data
 		migrationValidator := validator.New(ghAPI)
 
 		// Export the source repository data
 		timestamp := time.Now()
-		err := export.ExportSourceData(migrationValidator, sourceOrganization, sourceRepo, outputFormat, outputFile, timestamp)
+		err = export.ExportSourceData(migrationValidator, sourceOrganization, sourceRepo, outputFormat, outputFile, timestamp)
 		if err != nil {
 			fmt.Printf("Export failed: %v\n", err)
 			os.Exit(1)

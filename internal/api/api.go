@@ -42,52 +42,100 @@ type GitHubAPI struct {
 	targetGraphClient *RateLimitAwareGraphQLClient
 }
 
-// Package-level instance of GitHubAPI
-var defaultAPI *GitHubAPI
-
-// GetAPI returns the default GitHubAPI instance, initializing it if necessary
-func GetAPI() *GitHubAPI {
-	if defaultAPI == nil {
-		defaultAPI = NewGitHubAPI()
-	}
-	return defaultAPI
-}
-
-// For testing purposes - allows resetting the default API
-func resetAPI() {
-	defaultAPI = nil
-}
-
-// newGitHubAPI creates a new GitHubAPI instance with configured clients
-// Now private since we want to control initialization through GetAPI()
-func NewGitHubAPI() *GitHubAPI {
-	sourceConfig := ClientConfig{
+// Helper functions for config creation
+func getSourceConfig() ClientConfig {
+	return ClientConfig{
 		Token:          viper.GetString("SOURCE_TOKEN"),
 		Hostname:       viper.GetString("SOURCE_HOSTNAME"),
 		AppID:          viper.GetString("SOURCE_APP_ID"),
 		PrivateKey:     []byte(viper.GetString("SOURCE_PRIVATE_KEY")),
 		InstallationID: viper.GetInt64("SOURCE_INSTALLATION_ID"),
 	}
+}
 
-	targetConfig := ClientConfig{
+func getTargetConfig() ClientConfig {
+	return ClientConfig{
 		Token:          viper.GetString("TARGET_TOKEN"),
 		Hostname:       viper.GetString("TARGET_HOSTNAME"),
 		AppID:          viper.GetString("TARGET_APP_ID"),
 		PrivateKey:     []byte(viper.GetString("TARGET_PRIVATE_KEY")),
 		InstallationID: viper.GetInt64("TARGET_INSTALLATION_ID"),
 	}
+}
 
-	sourceClient := newGitHubClient(sourceConfig)
-	targetClient := newGitHubClient(targetConfig)
-	sourceGraphClient := newGitHubGraphQLClient(sourceConfig)
-	targetGraphClient := newGitHubGraphQLClient(targetConfig)
+// NewSourceOnlyAPI creates a GitHubAPI instance with only source clients
+func NewSourceOnlyAPI() (*GitHubAPI, error) {
+	sourceConfig := getSourceConfig()
+
+	sourceClient, err := newGitHubClient(sourceConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	sourceGraphClient, err := newGitHubGraphQLClient(sourceConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return &GitHubAPI{
+		sourceClient:      sourceClient,
+		sourceGraphClient: sourceGraphClient,
+		// target clients intentionally nil
+	}, nil
+}
+
+// NewTargetOnlyAPI creates a GitHubAPI instance with only target clients
+func NewTargetOnlyAPI() (*GitHubAPI, error) {
+	targetConfig := getTargetConfig()
+
+	targetClient, err := newGitHubClient(targetConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	targetGraphClient, err := newGitHubGraphQLClient(targetConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return &GitHubAPI{
+		targetClient:      targetClient,
+		targetGraphClient: targetGraphClient,
+		// source clients intentionally nil
+	}, nil
+}
+
+// NewGitHubAPI creates a GitHubAPI instance with both source and target clients
+func NewGitHubAPI() (*GitHubAPI, error) {
+	sourceConfig := getSourceConfig()
+	targetConfig := getTargetConfig()
+
+	sourceClient, err := newGitHubClient(sourceConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create source client: %v", err)
+	}
+
+	targetClient, err := newGitHubClient(targetConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create target client: %v", err)
+	}
+
+	sourceGraphClient, err := newGitHubGraphQLClient(sourceConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create source GraphQL client: %v", err)
+	}
+
+	targetGraphClient, err := newGitHubGraphQLClient(targetConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create target GraphQL client: %v", err)
+	}
 
 	return &GitHubAPI{
 		sourceClient:      sourceClient,
 		targetClient:      targetClient,
 		sourceGraphClient: sourceGraphClient,
 		targetGraphClient: targetGraphClient,
-	}
+	}, nil
 }
 
 // createAuthenticatedClient creates an HTTP client with proper authentication and rate limiting
@@ -125,10 +173,10 @@ func createAuthenticatedClient(config ClientConfig) (*http.Client, error) {
 }
 
 // newGitHubClient creates a new GitHub REST client based on the provided configuration
-func newGitHubClient(config ClientConfig) *github.Client {
+func newGitHubClient(config ClientConfig) (*github.Client, error) {
 	httpClient, err := createAuthenticatedClient(config)
 	if err != nil {
-		log.Fatalf("Failed to create authenticated client: %v", err)
+		return nil, err
 	}
 
 	client := github.NewClient(httpClient)
@@ -142,11 +190,11 @@ func newGitHubClient(config ClientConfig) *github.Client {
 		baseURL := fmt.Sprintf("%s/api/v3/", hostname)
 		client, err = client.WithEnterpriseURLs(baseURL, baseURL)
 		if err != nil {
-			log.Fatalf("Failed to configure enterprise URLs: %v", err)
+			return nil, fmt.Errorf("failed to configure enterprise URLs: %v", err)
 		}
 	}
 
-	return client
+	return client, nil
 }
 
 type RateLimitAwareGraphQLClient struct {
@@ -154,10 +202,10 @@ type RateLimitAwareGraphQLClient struct {
 }
 
 // newGitHubGraphQLClient creates a new GitHub GraphQL client based on the provided configuration
-func newGitHubGraphQLClient(config ClientConfig) *RateLimitAwareGraphQLClient {
+func newGitHubGraphQLClient(config ClientConfig) (*RateLimitAwareGraphQLClient, error) {
 	httpClient, err := createAuthenticatedClient(config)
 	if err != nil {
-		log.Fatalf("Failed to create authenticated client: %v", err)
+		return nil, err
 	}
 
 	var baseClient *githubv4.Client
@@ -175,7 +223,7 @@ func newGitHubGraphQLClient(config ClientConfig) *RateLimitAwareGraphQLClient {
 
 	return &RateLimitAwareGraphQLClient{
 		client: baseClient,
-	}
+	}, nil
 }
 
 func (c *RateLimitAwareGraphQLClient) Query(ctx context.Context, q interface{}, variables map[string]interface{}) error {
