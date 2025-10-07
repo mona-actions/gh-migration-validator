@@ -60,10 +60,8 @@ func validateMetricNames(t *testing.T, results []ValidationResult) {
 
 	// Verify metrics are in expected order with expected names
 	for i, expectedMetric := range expectedValidationMetrics {
-		if i < len(results) {
-			assert.Equal(t, expectedMetric, results[i].Metric,
-				"Metric at index %d should be '%s'", i, expectedMetric)
-		}
+		assert.Equal(t, expectedMetric, results[i].Metric,
+			"Metric at index %d should be '%s'", i, expectedMetric)
 	}
 }
 

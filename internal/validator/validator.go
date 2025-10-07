@@ -212,6 +212,11 @@ func (mv *MigrationValidator) ValidateFromExport(targetOwner, targetRepo string)
 		return nil, fmt.Errorf("source data not loaded - call SetSourceDataFromExport first")
 	}
 
+	// Normalize source data to prevent nil pointer dereferences
+	if mv.SourceData.PRs == nil {
+		mv.SourceData.PRs = &api.PRCounts{Total: 0, Open: 0, Merged: 0, Closed: 0}
+	}
+
 	fmt.Println("Starting migration validation from export...")
 	fmt.Printf("Source: %s/%s (from export) | Target: %s/%s\n",
 		mv.SourceData.Owner, mv.SourceData.Name, targetOwner, targetRepo)
