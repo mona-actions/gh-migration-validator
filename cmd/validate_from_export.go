@@ -49,33 +49,25 @@ The validation compares the same metrics as the standard validate command:
 		}
 
 		// Only set ENV variables if flag values are provided (not empty)
-		if targetOrganization != "" {
-			os.Setenv("GHMV_TARGET_ORGANIZATION", targetOrganization)
-		}
 		if targetToken != "" {
 			os.Setenv("GHMV_TARGET_TOKEN", targetToken)
 		}
 		if targetHostname != "" {
 			os.Setenv("GHMV_TARGET_HOSTNAME", targetHostname)
 		}
-		if targetRepo != "" {
-			os.Setenv("GHMV_TARGET_REPO", targetRepo)
-		}
 		if markdownTable {
 			os.Setenv("GHMV_MARKDOWN_TABLE", "true")
 		}
 
-		// Bind ENV variables in Viper
-		viper.BindEnv("TARGET_ORGANIZATION")
+		// Bind ENV variables in Viper (for optional parameters that can use env vars)
 		viper.BindEnv("TARGET_TOKEN")
 		viper.BindEnv("TARGET_HOSTNAME")
 		viper.BindEnv("TARGET_PRIVATE_KEY")
 		viper.BindEnv("TARGET_APP_ID")
 		viper.BindEnv("TARGET_INSTALLATION_ID")
-		viper.BindEnv("TARGET_REPO")
 		viper.BindEnv("MARKDOWN_TABLE")
 
-		// Validate required variables for export validation
+		// Validate required parameters (using flag values directly for required flags)
 		if err := checkExportValidationVars(exportFile); err != nil {
 			fmt.Printf("Export validation configuration failed: %v\n", err)
 			os.Exit(1)
@@ -132,26 +124,16 @@ func init() {
 
 // checkExportValidationVars validates the configuration for validate-from-export command
 func checkExportValidationVars(exportFile string) error {
-	// Check export file is provided
-	if exportFile == "" {
-		return fmt.Errorf("export file is required. Set it via --export-file flag")
-	}
 
 	// Check if export file exists
 	if _, err := os.Stat(exportFile); os.IsNotExist(err) {
 		return fmt.Errorf("export file does not exist: %s", exportFile)
 	}
 
-	// Check for target token
+	// Check for target token (can come from flag or environment variable)
 	targetToken := viper.GetString("TARGET_TOKEN")
 	if targetToken == "" {
 		return fmt.Errorf("target token is required. Set it via --target-token flag or GHMV_TARGET_TOKEN environment variable")
-	}
-
-	// Check target repository
-	targetRepo := viper.GetString("TARGET_REPO")
-	if targetRepo == "" {
-		return fmt.Errorf("target repository is required. Set it via --target-repo flag")
 	}
 
 	return nil

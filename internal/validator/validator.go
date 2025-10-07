@@ -208,16 +208,23 @@ func (mv *MigrationValidator) RetrieveSourceData(owner, name string, spinner *pt
 
 // SetSourceDataFromExport sets the source data from an export instead of fetching from API
 func (mv *MigrationValidator) SetSourceDataFromExport(exportData *RepositoryData) {
-	//prevent external mutation
+	// Create a deep copy to prevent external mutation
 	sourceDataCopy := *exportData
+
+	// Clone the PRCounts struct if it exists to achieve true isolation
+	if exportData.PRs != nil {
+		prCountsCopy := *exportData.PRs
+		sourceDataCopy.PRs = &prCountsCopy
+	}
+
 	mv.SourceData = &sourceDataCopy
 }
 
 // ValidateFromExport performs validation against target using pre-loaded source data from export
 func (mv *MigrationValidator) ValidateFromExport(targetOwner, targetRepo string) ([]ValidationResult, error) {
 	// Validate that source data is already loaded
-	if mv.SourceData == nil {
-		return nil, fmt.Errorf("source data not loaded - call SetSourceDataFromExport first")
+	if mv.SourceData == nil || mv.SourceData.Owner == "" || mv.SourceData.Name == "" {
+		return nil, fmt.Errorf("source data not properly loaded - call SetSourceDataFromExport with valid data first")
 	}
 
 	// Normalize source data to prevent nil pointer dereferences
@@ -235,7 +242,9 @@ func (mv *MigrationValidator) ValidateFromExport(targetOwner, targetRepo string)
 	// Retrieve target data using existing functionality
 	err := mv.retrieveTarget(targetOwner, targetRepo, spinner)
 	if err != nil {
+		spinner.Fail(fmt.Sprintf("Failed to fetch target data from %s/%s", targetOwner, targetRepo))
 		return nil, fmt.Errorf("failed to retrieve target data: %w", err)
+		//fail spinner
 	}
 
 	// Compare and validate the data (same as ValidateMigration)
