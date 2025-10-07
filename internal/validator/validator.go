@@ -14,6 +14,12 @@ import (
 type ValidationStatus int
 
 const (
+	ValidationStatusMessageFail = "❌ FAIL"
+	ValidationStatusMessagePass = "✅ PASS"
+	ValidationStatusMessageWarn = "⚠️ WARN"
+)
+
+const (
 	ValidationStatusPass ValidationStatus = iota
 	ValidationStatusFail
 	ValidationStatusWarn
@@ -26,11 +32,11 @@ const (
 func getValidationStatus(diff int) (string, ValidationStatus) {
 	switch {
 	case diff > 0:
-		return "❌ FAIL", ValidationStatusFail
+		return ValidationStatusMessageFail, ValidationStatusFail
 	case diff < 0:
-		return "⚠️ WARN", ValidationStatusWarn
+		return ValidationStatusMessageWarn, ValidationStatusWarn
 	default:
-		return "✅ PASS", ValidationStatusPass
+		return ValidationStatusMessagePass, ValidationStatusPass
 	}
 }
 
@@ -406,10 +412,11 @@ func (mv *MigrationValidator) validateRepositoryData() []ValidationResult {
 	})
 
 	// Compare Latest Commit SHA
-	latestCommitStatus := "✅ PASS"
+	latestCommitStatus := ValidationStatusMessagePass
 	latestCommitStatusType := ValidationStatusPass
+
 	if mv.SourceData.LatestCommitSHA != mv.TargetData.LatestCommitSHA {
-		latestCommitStatus = "❌ FAIL"
+		latestCommitStatus = ValidationStatusMessageFail
 		latestCommitStatusType = ValidationStatusFail
 	}
 
@@ -552,12 +559,12 @@ func (mv *MigrationValidator) printMarkdownTable(results []ValidationResult) {
 	warnCount := 0
 
 	for _, result := range results {
-		switch result.Status {
-		case "✅ PASS":
+		switch result.StatusType {
+		case ValidationStatusPass:
 			passCount++
-		case "❌ FAIL":
+		case ValidationStatusFail:
 			failCount++
-		case "⚠️ WARN":
+		case ValidationStatusWarn:
 			warnCount++
 		}
 	}
