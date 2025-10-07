@@ -10,6 +10,30 @@ import (
 	"github.com/spf13/viper"
 )
 
+// ValidationStatus represents the logical status of a validation result
+type ValidationStatus int
+
+const (
+	ValidationStatusPass ValidationStatus = iota
+	ValidationStatusFail
+	ValidationStatusWarn
+)
+
+// getValidationStatus returns both display string and enum value based on difference
+// diff > 0: target has fewer items than source (FAIL)
+// diff < 0: target has more items than source (WARN)
+// diff = 0: perfect match (PASS)
+func getValidationStatus(diff int) (string, ValidationStatus) {
+	switch {
+	case diff > 0:
+		return "❌ FAIL", ValidationStatusFail
+	case diff < 0:
+		return "⚠️ WARN", ValidationStatusWarn
+	default:
+		return "✅ PASS", ValidationStatusPass
+	}
+}
+
 // RepositoryData holds all the metrics for a repository
 type RepositoryData struct {
 	Owner           string
@@ -27,8 +51,9 @@ type ValidationResult struct {
 	Metric     string
 	SourceVal  interface{}
 	TargetVal  interface{}
-	Status     string // "✅ PASS", "❌ FAIL", "⚠️ WARN"
-	Difference int    // How many items are missing in target (negative if target has more)
+	Status     string           // "✅ PASS", "❌ FAIL", "⚠️ WARN" - for display
+	StatusType ValidationStatus // Pass, Fail, Warn - for logic/testing
+	Difference int              // How many items are missing in target (negative if target has more)
 }
 
 // MigrationValidator handles the validation of GitHub organization migrations
@@ -284,127 +309,101 @@ func (mv *MigrationValidator) validateRepositoryData() []ValidationResult {
 	// Compare Issues (target should have source issues + 1 for migration logging issue)
 	expectedTargetIssues := mv.SourceData.Issues + 1
 	issueDiff := expectedTargetIssues - mv.TargetData.Issues
-	issueStatus := "✅ PASS"
-	if issueDiff > 0 {
-		issueStatus = "❌ FAIL"
-	} else if issueDiff < 0 {
-		issueStatus = "⚠️ WARN"
-	}
+	issueStatus, issueStatusType := getValidationStatus(issueDiff)
 
 	results = append(results, ValidationResult{
 		Metric:     "Issues (expected +1 for migration log)",
 		SourceVal:  fmt.Sprintf("%d (expected target: %d)", mv.SourceData.Issues, expectedTargetIssues),
 		TargetVal:  mv.TargetData.Issues,
 		Status:     issueStatus,
+		StatusType: issueStatusType,
 		Difference: issueDiff,
 	})
 
 	// Compare Total PRs
 	prDiff := mv.SourceData.PRs.Total - mv.TargetData.PRs.Total
-	prStatus := "✅ PASS"
-	if prDiff > 0 {
-		prStatus = "❌ FAIL"
-	} else if prDiff < 0 {
-		prStatus = "⚠️ WARN"
-	}
+	prStatus, prStatusType := getValidationStatus(prDiff)
 
 	results = append(results, ValidationResult{
 		Metric:     "Pull Requests (Total)",
 		SourceVal:  mv.SourceData.PRs.Total,
 		TargetVal:  mv.TargetData.PRs.Total,
 		Status:     prStatus,
+		StatusType: prStatusType,
 		Difference: prDiff,
 	})
 
 	// Compare Open PRs
 	openPRDiff := mv.SourceData.PRs.Open - mv.TargetData.PRs.Open
-	openPRStatus := "✅ PASS"
-	if openPRDiff > 0 {
-		openPRStatus = "❌ FAIL"
-	} else if openPRDiff < 0 {
-		openPRStatus = "⚠️ WARN"
-	}
+	openPRStatus, openPRStatusType := getValidationStatus(openPRDiff)
 
 	results = append(results, ValidationResult{
 		Metric:     "Pull Requests (Open)",
 		SourceVal:  mv.SourceData.PRs.Open,
 		TargetVal:  mv.TargetData.PRs.Open,
 		Status:     openPRStatus,
+		StatusType: openPRStatusType,
 		Difference: openPRDiff,
 	})
 
 	// Compare Merged PRs
 	mergedPRDiff := mv.SourceData.PRs.Merged - mv.TargetData.PRs.Merged
-	mergedPRStatus := "✅ PASS"
-	if mergedPRDiff > 0 {
-		mergedPRStatus = "❌ FAIL"
-	} else if mergedPRDiff < 0 {
-		mergedPRStatus = "⚠️ WARN"
-	}
+	mergedPRStatus, mergedPRStatusType := getValidationStatus(mergedPRDiff)
 
 	results = append(results, ValidationResult{
 		Metric:     "Pull Requests (Merged)",
 		SourceVal:  mv.SourceData.PRs.Merged,
 		TargetVal:  mv.TargetData.PRs.Merged,
 		Status:     mergedPRStatus,
+		StatusType: mergedPRStatusType,
 		Difference: mergedPRDiff,
 	})
 
 	// Compare Tags
 	tagDiff := mv.SourceData.Tags - mv.TargetData.Tags
-	tagStatus := "✅ PASS"
-	if tagDiff > 0 {
-		tagStatus = "❌ FAIL"
-	} else if tagDiff < 0 {
-		tagStatus = "⚠️ WARN"
-	}
+	tagStatus, tagStatusType := getValidationStatus(tagDiff)
 
 	results = append(results, ValidationResult{
 		Metric:     "Tags",
 		SourceVal:  mv.SourceData.Tags,
 		TargetVal:  mv.TargetData.Tags,
 		Status:     tagStatus,
+		StatusType: tagStatusType,
 		Difference: tagDiff,
 	})
 
 	// Compare Releases
 	releaseDiff := mv.SourceData.Releases - mv.TargetData.Releases
-	releaseStatus := "✅ PASS"
-	if releaseDiff > 0 {
-		releaseStatus = "❌ FAIL"
-	} else if releaseDiff < 0 {
-		releaseStatus = "⚠️ WARN"
-	}
+	releaseStatus, releaseStatusType := getValidationStatus(releaseDiff)
 
 	results = append(results, ValidationResult{
 		Metric:     "Releases",
 		SourceVal:  mv.SourceData.Releases,
 		TargetVal:  mv.TargetData.Releases,
 		Status:     releaseStatus,
+		StatusType: releaseStatusType,
 		Difference: releaseDiff,
 	})
 
 	// Compare Commit Count
 	commitDiff := mv.SourceData.CommitCount - mv.TargetData.CommitCount
-	commitStatus := "✅ PASS"
-	if commitDiff > 0 {
-		commitStatus = "❌ FAIL"
-	} else if commitDiff < 0 {
-		commitStatus = "⚠️ WARN"
-	}
+	commitStatus, commitStatusType := getValidationStatus(commitDiff)
 
 	results = append(results, ValidationResult{
 		Metric:     "Commits",
 		SourceVal:  mv.SourceData.CommitCount,
 		TargetVal:  mv.TargetData.CommitCount,
 		Status:     commitStatus,
+		StatusType: commitStatusType,
 		Difference: commitDiff,
 	})
 
 	// Compare Latest Commit SHA
 	latestCommitStatus := "✅ PASS"
+	latestCommitStatusType := ValidationStatusPass
 	if mv.SourceData.LatestCommitSHA != mv.TargetData.LatestCommitSHA {
 		latestCommitStatus = "❌ FAIL"
+		latestCommitStatusType = ValidationStatusFail
 	}
 
 	results = append(results, ValidationResult{
@@ -412,6 +411,7 @@ func (mv *MigrationValidator) validateRepositoryData() []ValidationResult {
 		SourceVal:  mv.SourceData.LatestCommitSHA,
 		TargetVal:  mv.TargetData.LatestCommitSHA,
 		Status:     latestCommitStatus,
+		StatusType: latestCommitStatusType,
 		Difference: 0, // Not applicable for SHA comparison
 	})
 
