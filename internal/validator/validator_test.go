@@ -115,11 +115,19 @@ func TestValidateRepositoryData_PerfectMatch(t *testing.T) {
 	assert.Equal(t, 5, prResult.TargetVal)
 
 	// Verify commit SHA result
-	shaResult := results[7]
-	assert.Equal(t, "Latest Commit SHA", shaResult.Metric)
-	assert.Equal(t, ValidationStatusPass, shaResult.StatusType)
-	assert.Equal(t, "abc123", shaResult.SourceVal)
-	assert.Equal(t, "abc123", shaResult.TargetVal)
+	var shaResult *ValidationResult
+	for i := range results {
+		if results[i].Metric == "Latest Commit SHA" {
+			shaResult = &results[i]
+			break
+		}
+	}
+	if assert.NotNil(t, shaResult, "Should find commit SHA validation result") {
+		assert.Equal(t, "Latest Commit SHA", shaResult.Metric)
+		assert.Equal(t, ValidationStatusPass, shaResult.StatusType)
+		assert.Equal(t, "abc123", shaResult.SourceVal)
+		assert.Equal(t, "abc123", shaResult.TargetVal)
+	}
 }
 
 func TestValidateRepositoryData_MissingData(t *testing.T) {
@@ -168,10 +176,18 @@ func TestValidateRepositoryData_MissingData(t *testing.T) {
 	assert.Equal(t, 2, prResult.Difference) // Expected 5, got 3
 
 	// Check commit SHA validation
-	shaResult := results[7]
-	assert.Equal(t, ValidationStatusFail, shaResult.StatusType)
-	assert.Equal(t, "abc123", shaResult.SourceVal)
-	assert.Equal(t, "def456", shaResult.TargetVal)
+	var shaResult *ValidationResult
+	for i := range results {
+		if results[i].Metric == "Latest Commit SHA" {
+			shaResult = &results[i]
+			break
+		}
+	}
+	if assert.NotNil(t, shaResult, "Should find commit SHA validation result") {
+		assert.Equal(t, ValidationStatusFail, shaResult.StatusType)
+		assert.Equal(t, "abc123", shaResult.SourceVal)
+		assert.Equal(t, "def456", shaResult.TargetVal)
+	}
 }
 
 func TestValidateRepositoryData_ExtraData(t *testing.T) {
@@ -219,8 +235,16 @@ func TestValidateRepositoryData_ExtraData(t *testing.T) {
 	assert.Equal(t, -2, issueResult.Difference) // Expected 11, got 13
 
 	// Check commit SHA validation (should still pass)
-	shaResult := results[7]
-	assert.Equal(t, ValidationStatusPass, shaResult.StatusType)
+	var shaResult *ValidationResult
+	for i := range results {
+		if results[i].Metric == "Latest Commit SHA" {
+			shaResult = &results[i]
+			break
+		}
+	}
+	if assert.NotNil(t, shaResult, "Should find commit SHA validation result") {
+		assert.Equal(t, ValidationStatusPass, shaResult.StatusType)
+	}
 }
 
 func TestPrintValidationResults(t *testing.T) {
@@ -444,13 +468,21 @@ func TestValidationResult_CommitSHAComparison(t *testing.T) {
 
 			results := validator.validateRepositoryData()
 
-			// Find the commit SHA result (should be last)
-			shaResult := results[len(results)-1]
-			assert.Equal(t, "Latest Commit SHA", shaResult.Metric)
-			assert.Equal(t, tt.expectedStatusType, shaResult.StatusType)
-			assert.Equal(t, tt.sourceSHA, shaResult.SourceVal)
-			assert.Equal(t, tt.targetSHA, shaResult.TargetVal)
-			assert.Equal(t, 0, shaResult.Difference) // Always 0 for SHA comparison
+			// Find the commit SHA result by metric name
+			var shaResult *ValidationResult
+			for i := range results {
+				if results[i].Metric == "Latest Commit SHA" {
+					shaResult = &results[i]
+					break
+				}
+			}
+			if assert.NotNil(t, shaResult, "Should find commit SHA validation result") {
+				assert.Equal(t, "Latest Commit SHA", shaResult.Metric)
+				assert.Equal(t, tt.expectedStatusType, shaResult.StatusType)
+				assert.Equal(t, tt.sourceSHA, shaResult.SourceVal)
+				assert.Equal(t, tt.targetSHA, shaResult.TargetVal)
+				assert.Equal(t, 0, shaResult.Difference) // Always 0 for SHA comparison
+			}
 		})
 	}
 }
@@ -482,30 +514,8 @@ func TestValidateRepositoryData_MetricNames(t *testing.T) {
 
 	results := validator.validateRepositoryData()
 
-	// Should have exactly the expected number of results
-	assert.Equal(t, len(expectedValidationMetrics), len(results), "Should return expected number of validation results")
-
-	// Create a map of returned metrics for easier lookup
-	returnedMetrics := make(map[string]bool)
-	for _, result := range results {
-		returnedMetrics[result.Metric] = true
-	}
-
-	// Verify that all expected metrics are present
-	for i, expectedMetric := range expectedValidationMetrics {
-		assert.True(t, returnedMetrics[expectedMetric],
-			"Expected metric '%s' (index %d) should be present in results", expectedMetric, i)
-	}
-
-	// Verify that no unexpected metrics are present
-	assert.Equal(t, len(expectedValidationMetrics), len(returnedMetrics),
-		"Should not have any extra metrics beyond expected ones")
-
-	// Verify metrics are returned in expected order
-	for i, expectedMetric := range expectedValidationMetrics {
-		assert.Equal(t, expectedMetric, results[i].Metric,
-			"Metric at index %d should be '%s'", i, expectedMetric)
-	}
+	// Use the helper to validate metric names and presence
+	validateMetricNames(t, results)
 }
 
 func TestMarkdownTable_DifferentScenarios(t *testing.T) {

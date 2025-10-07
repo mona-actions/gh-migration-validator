@@ -202,7 +202,9 @@ func (mv *MigrationValidator) RetrieveSourceData(owner, name string, spinner *pt
 
 // SetSourceDataFromExport sets the source data from an export instead of fetching from API
 func (mv *MigrationValidator) SetSourceDataFromExport(exportData *RepositoryData) {
-	mv.SourceData = exportData
+	//prevent external mutation
+	sourceDataCopy := *exportData
+	mv.SourceData = &sourceDataCopy
 }
 
 // ValidateFromExport performs validation against target using pre-loaded source data from export
