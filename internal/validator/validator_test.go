@@ -706,7 +706,7 @@ func TestValidateFromExport_CompleteWorkflow(t *testing.T) {
 	// All should pass since target data matches expected values
 	passCount := 0
 	for _, result := range results {
-		if result.Status == "✅ PASS" {
+		if result.StatusType == ValidationStatusPass {
 			passCount++
 		}
 	}
