@@ -671,8 +671,8 @@ func TestValidateFromExport_NoSourceData(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, results)
-	assert.Contains(t, err.Error(), "source data not loaded")
-	assert.Contains(t, err.Error(), "call SetSourceDataFromExport first")
+	assert.Contains(t, err.Error(), "source data not properly loaded")
+	assert.Contains(t, err.Error(), "call SetSourceDataFromExport with valid data first")
 }
 
 func TestValidateFromExport_CompleteWorkflow(t *testing.T) {
@@ -744,8 +744,8 @@ func TestValidateFromExport_SourceDataValidation(t *testing.T) {
 		// Should fail immediately with source data error, before any API calls
 		assert.Error(t, err)
 		assert.Nil(t, results)
-		assert.Contains(t, err.Error(), "source data not loaded")
-		assert.Contains(t, err.Error(), "call SetSourceDataFromExport first")
+		assert.Contains(t, err.Error(), "source data not properly loaded")
+		assert.Contains(t, err.Error(), "call SetSourceDataFromExport with valid data first")
 	})
 
 	t.Run("Valid source data structure", func(t *testing.T) {
