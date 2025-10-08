@@ -162,3 +162,50 @@ func exportToCSV(data ExportData, filename string) error {
 
 	return nil
 }
+
+// LoadExportData loads and validates export data from a JSON file
+func LoadExportData(filename string) (*ExportData, error) {
+	// Check if file exists
+	if _, err := os.Stat(filename); os.IsNotExist(err) {
+		return nil, fmt.Errorf("export file does not exist: %s", filename)
+	}
+
+	// Read file content
+	content, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read export file: %w", err)
+	}
+
+	// Parse JSON
+	var exportData ExportData
+	if err := json.Unmarshal(content, &exportData); err != nil {
+		return nil, fmt.Errorf("failed to parse export JSON: %w", err)
+	}
+
+	// Validate required fields
+	if err := validateExportData(&exportData); err != nil {
+		return nil, fmt.Errorf("invalid export data: %w", err)
+	}
+
+	return &exportData, nil
+}
+
+// validateExportData ensures the export data has all required fields
+func validateExportData(data *ExportData) error {
+	if data.ExportTimestamp.IsZero() {
+		return fmt.Errorf("export timestamp is missing or invalid")
+	}
+
+	if data.Repository.Owner == "" {
+		return fmt.Errorf("repository owner is missing")
+	}
+
+	if data.Repository.Name == "" {
+		return fmt.Errorf("repository name is missing")
+	}
+
+	// Note: We don't validate PRs for nil here since we handle that gracefully in the export functions
+	// This allows for flexibility in case the export format evolves
+
+	return nil
+}

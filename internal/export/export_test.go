@@ -71,19 +71,7 @@ func TestExportToJSON(t *testing.T) {
 	filename := filepath.Join(tmpDir, "test.json")
 
 	// Create test data
-	exportData := ExportData{
-		ExportTimestamp: time.Date(2025, 10, 2, 14, 30, 0, 0, time.UTC),
-		Repository: validator.RepositoryData{
-			Owner:           "test-owner",
-			Name:            "test-repo",
-			Issues:          10,
-			PRs:             &api.PRCounts{Open: 1, Closed: 2, Merged: 3, Total: 6},
-			Tags:            5,
-			Releases:        2,
-			CommitCount:     100,
-			LatestCommitSHA: "abcd1234",
-		},
-	}
+	exportData := createTestExportData()
 
 	// Test the function
 	err := exportToJSON(exportData, filename)
@@ -106,6 +94,12 @@ func TestExportToJSON(t *testing.T) {
 	if parsed.Repository.Owner != exportData.Repository.Owner {
 		t.Errorf("Expected owner %s, got %s", exportData.Repository.Owner, parsed.Repository.Owner)
 	}
+	if parsed.Repository.Name != exportData.Repository.Name {
+		t.Errorf("Expected name %s, got %s", exportData.Repository.Name, parsed.Repository.Name)
+	}
+	if parsed.Repository.Issues != exportData.Repository.Issues {
+		t.Errorf("Expected %d issues, got %d", exportData.Repository.Issues, parsed.Repository.Issues)
+	}
 }
 
 func TestExportToCSV(t *testing.T) {
@@ -114,19 +108,7 @@ func TestExportToCSV(t *testing.T) {
 	filename := filepath.Join(tmpDir, "test.csv")
 
 	// Create test data
-	exportData := ExportData{
-		ExportTimestamp: time.Date(2025, 10, 2, 14, 30, 0, 0, time.UTC),
-		Repository: validator.RepositoryData{
-			Owner:           "test-owner",
-			Name:            "test-repo",
-			Issues:          10,
-			PRs:             &api.PRCounts{Open: 1, Closed: 2, Merged: 3, Total: 6},
-			Tags:            5,
-			Releases:        2,
-			CommitCount:     100,
-			LatestCommitSHA: "abcd1234",
-		},
-	}
+	exportData := createTestExportData()
 
 	// Test the function
 	err := exportToCSV(exportData, filename)
@@ -160,8 +142,8 @@ func TestExportToCSV(t *testing.T) {
 	if dataRow[2] != "test-repo" {
 		t.Errorf("Expected repo test-repo, got %s", dataRow[2])
 	}
-	if dataRow[3] != "10" {
-		t.Errorf("Expected 10 issues, got %s", dataRow[3])
+	if dataRow[3] != "42" {
+		t.Errorf("Expected 42 issues, got %s", dataRow[3])
 	}
 }
 

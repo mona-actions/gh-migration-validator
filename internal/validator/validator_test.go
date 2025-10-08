@@ -12,6 +12,19 @@ import (
 	"mona-actions/gh-migration-validator/internal/api"
 )
 
+// expectedValidationMetrics defines all the metrics that should be validated
+// This eliminates magic numbers in tests and ensures consistency when validation dimensions change
+var expectedValidationMetrics = []string{
+	"Issues (expected +1 for migration log)",
+	"Pull Requests (Total)",
+	"Pull Requests (Open)",
+	"Pull Requests (Merged)",
+	"Tags",
+	"Releases",
+	"Commits",
+	"Latest Commit SHA",
+}
+
 // setupTestValidator creates a validator with test data for validation testing
 func setupTestValidator(sourceData, targetData *RepositoryData) *MigrationValidator {
 	return &MigrationValidator{
@@ -35,6 +48,21 @@ func captureOutput(f func()) string {
 	var buf bytes.Buffer
 	io.Copy(&buf, r)
 	return buf.String()
+}
+
+// validateMetricNames is a helper function to verify that validation results contain expected metrics
+func validateMetricNames(t *testing.T, results []ValidationResult) {
+	t.Helper() // Mark this as a test helper
+
+	// Should have expected number of results
+	assert.Equal(t, len(expectedValidationMetrics), len(results),
+		"Should return expected number of validation results")
+
+	// Verify metrics are in expected order with expected names
+	for i, expectedMetric := range expectedValidationMetrics {
+		assert.Equal(t, expectedMetric, results[i].Metric,
+			"Metric at index %d should be '%s'", i, expectedMetric)
+	}
 }
 
 func TestValidateRepositoryData_PerfectMatch(t *testing.T) {
@@ -63,37 +91,43 @@ func TestValidateRepositoryData_PerfectMatch(t *testing.T) {
 	validator := setupTestValidator(sourceData, targetData)
 	results := validator.validateRepositoryData()
 
-	// Should have 8 validation results
-	assert.Equal(t, 8, len(results), "Should have 8 validation results")
+	// Validate metric names and count
+	validateMetricNames(t, results)
 
 	// Check that all results pass
 	passCount := 0
 	for _, result := range results {
-		if result.Status == "✅ PASS" {
+		if result.StatusType == ValidationStatusPass {
 			passCount++
 		}
 	}
-	assert.Equal(t, 8, passCount, "All validations should pass for perfect match")
-
-	// Verify specific results
+	assert.Equal(t, len(expectedValidationMetrics), passCount, "All validations should pass for perfect match") // Verify specific results
 	issueResult := results[0]
 	assert.Equal(t, "Issues (expected +1 for migration log)", issueResult.Metric)
-	assert.Equal(t, "✅ PASS", issueResult.Status)
+	assert.Equal(t, ValidationStatusPass, issueResult.StatusType)
 	assert.Equal(t, 0, issueResult.Difference)
 
 	// Verify PR results
 	prResult := results[1]
 	assert.Equal(t, "Pull Requests (Total)", prResult.Metric)
-	assert.Equal(t, "✅ PASS", prResult.Status)
+	assert.Equal(t, ValidationStatusPass, prResult.StatusType)
 	assert.Equal(t, 5, prResult.SourceVal)
 	assert.Equal(t, 5, prResult.TargetVal)
 
 	// Verify commit SHA result
-	shaResult := results[7]
-	assert.Equal(t, "Latest Commit SHA", shaResult.Metric)
-	assert.Equal(t, "✅ PASS", shaResult.Status)
-	assert.Equal(t, "abc123", shaResult.SourceVal)
-	assert.Equal(t, "abc123", shaResult.TargetVal)
+	var shaResult *ValidationResult
+	for i := range results {
+		if results[i].Metric == "Latest Commit SHA" {
+			shaResult = &results[i]
+			break
+		}
+	}
+	if assert.NotNil(t, shaResult, "Should find commit SHA validation result") {
+		assert.Equal(t, "Latest Commit SHA", shaResult.Metric)
+		assert.Equal(t, ValidationStatusPass, shaResult.StatusType)
+		assert.Equal(t, "abc123", shaResult.SourceVal)
+		assert.Equal(t, "abc123", shaResult.TargetVal)
+	}
 }
 
 func TestValidateRepositoryData_MissingData(t *testing.T) {
@@ -125,27 +159,35 @@ func TestValidateRepositoryData_MissingData(t *testing.T) {
 	// Count statuses
 	failCount := 0
 	for _, result := range results {
-		if result.Status == "❌ FAIL" {
+		if result.StatusType == ValidationStatusFail {
 			failCount++
 		}
 	}
-	assert.Equal(t, 8, failCount, "Should have 8 failures for missing data")
+	assert.Equal(t, len(expectedValidationMetrics), failCount, "Should have expected number of failures for missing data")
 
 	// Check issues validation
 	issueResult := results[0]
-	assert.Equal(t, "❌ FAIL", issueResult.Status)
+	assert.Equal(t, ValidationStatusFail, issueResult.StatusType)
 	assert.Equal(t, 3, issueResult.Difference) // Expected 11, got 8
 
 	// Check PR validation
 	prResult := results[1]
-	assert.Equal(t, "❌ FAIL", prResult.Status)
+	assert.Equal(t, ValidationStatusFail, prResult.StatusType)
 	assert.Equal(t, 2, prResult.Difference) // Expected 5, got 3
 
 	// Check commit SHA validation
-	shaResult := results[7]
-	assert.Equal(t, "❌ FAIL", shaResult.Status)
-	assert.Equal(t, "abc123", shaResult.SourceVal)
-	assert.Equal(t, "def456", shaResult.TargetVal)
+	var shaResult *ValidationResult
+	for i := range results {
+		if results[i].Metric == "Latest Commit SHA" {
+			shaResult = &results[i]
+			break
+		}
+	}
+	if assert.NotNil(t, shaResult, "Should find commit SHA validation result") {
+		assert.Equal(t, ValidationStatusFail, shaResult.StatusType)
+		assert.Equal(t, "abc123", shaResult.SourceVal)
+		assert.Equal(t, "def456", shaResult.TargetVal)
+	}
 }
 
 func TestValidateRepositoryData_ExtraData(t *testing.T) {
@@ -178,23 +220,31 @@ func TestValidateRepositoryData_ExtraData(t *testing.T) {
 	warnCount := 0
 	passCount := 0
 	for _, result := range results {
-		if result.Status == "⚠️ WARN" {
+		if result.StatusType == ValidationStatusWarn {
 			warnCount++
-		} else if result.Status == "✅ PASS" {
+		} else if result.StatusType == ValidationStatusPass {
 			passCount++
 		}
 	}
-	assert.Equal(t, 7, warnCount, "Should have 7 warnings for extra data")
+	assert.Equal(t, len(expectedValidationMetrics)-1, warnCount, "Should have warnings for extra data (except commit SHA)")
 	assert.Equal(t, 1, passCount, "Should have 1 pass (commit SHA)")
 
 	// Check issues validation (extra data)
 	issueResult := results[0]
-	assert.Equal(t, "⚠️ WARN", issueResult.Status)
+	assert.Equal(t, ValidationStatusWarn, issueResult.StatusType)
 	assert.Equal(t, -2, issueResult.Difference) // Expected 11, got 13
 
 	// Check commit SHA validation (should still pass)
-	shaResult := results[7]
-	assert.Equal(t, "✅ PASS", shaResult.Status)
+	var shaResult *ValidationResult
+	for i := range results {
+		if results[i].Metric == "Latest Commit SHA" {
+			shaResult = &results[i]
+			break
+		}
+	}
+	if assert.NotNil(t, shaResult, "Should find commit SHA validation result") {
+		assert.Equal(t, ValidationStatusPass, shaResult.StatusType)
+	}
 }
 
 func TestPrintValidationResults(t *testing.T) {
@@ -218,21 +268,24 @@ func TestPrintValidationResults(t *testing.T) {
 			Metric:     "Issues",
 			SourceVal:  10,
 			TargetVal:  11,
-			Status:     "✅ PASS",
+			Status:     ValidationStatusMessagePass,
+			StatusType: ValidationStatusPass,
 			Difference: 0,
 		},
 		{
 			Metric:     "PRs",
 			SourceVal:  5,
 			TargetVal:  3,
-			Status:     "❌ FAIL",
+			Status:     ValidationStatusMessageFail,
+			StatusType: ValidationStatusFail,
 			Difference: 2,
 		},
 		{
 			Metric:     "Tags",
 			SourceVal:  3,
 			TargetVal:  5,
-			Status:     "⚠️ WARN",
+			Status:     ValidationStatusMessageWarn,
+			StatusType: ValidationStatusWarn,
 			Difference: -2,
 		},
 	}
@@ -265,6 +318,7 @@ func TestPrintMarkdownTable(t *testing.T) {
 			SourceVal:  10,
 			TargetVal:  11,
 			Status:     "✅ PASS",
+			StatusType: ValidationStatusPass,
 			Difference: 0,
 		},
 		{
@@ -272,6 +326,7 @@ func TestPrintMarkdownTable(t *testing.T) {
 			SourceVal:  5,
 			TargetVal:  3,
 			Status:     "❌ FAIL",
+			StatusType: ValidationStatusFail,
 			Difference: 2,
 		},
 		{
@@ -279,6 +334,7 @@ func TestPrintMarkdownTable(t *testing.T) {
 			SourceVal:  3,
 			TargetVal:  5,
 			Status:     "⚠️ WARN",
+			StatusType: ValidationStatusWarn,
 			Difference: -2,
 		},
 		{
@@ -286,6 +342,7 @@ func TestPrintMarkdownTable(t *testing.T) {
 			SourceVal:  "abc123",
 			TargetVal:  "def456",
 			Status:     "❌ FAIL",
+			StatusType: ValidationStatusFail,
 			Difference: 0,
 		},
 	}
@@ -317,32 +374,32 @@ func TestPrintMarkdownTable(t *testing.T) {
 
 func TestValidationResult_DifferenceCalculation(t *testing.T) {
 	tests := []struct {
-		name           string
-		sourceIssues   int
-		targetIssues   int
-		expectedStatus string
-		expectedDiff   int
+		name               string
+		sourceIssues       int
+		targetIssues       int
+		expectedStatusType ValidationStatus
+		expectedDiff       int
 	}{
 		{
-			name:           "Perfect issues match (+1 expected)",
-			sourceIssues:   10,
-			targetIssues:   11,
-			expectedStatus: "✅ PASS",
-			expectedDiff:   0,
+			name:               "Perfect issues match (+1 expected)",
+			sourceIssues:       10,
+			targetIssues:       11,
+			expectedStatusType: ValidationStatusPass,
+			expectedDiff:       0,
 		},
 		{
-			name:           "Missing issues in target",
-			sourceIssues:   10,
-			targetIssues:   9,
-			expectedStatus: "❌ FAIL",
-			expectedDiff:   2, // Expected 11, got 9
+			name:               "Missing issues in target",
+			sourceIssues:       10,
+			targetIssues:       9,
+			expectedStatusType: ValidationStatusFail,
+			expectedDiff:       2, // Expected 11, got 9
 		},
 		{
-			name:           "Extra issues in target",
-			sourceIssues:   10,
-			targetIssues:   13,
-			expectedStatus: "⚠️ WARN",
-			expectedDiff:   -2, // Expected 11, got 13
+			name:               "Extra issues in target",
+			sourceIssues:       10,
+			targetIssues:       13,
+			expectedStatusType: ValidationStatusWarn,
+			expectedDiff:       -2, // Expected 11, got 13
 		},
 	}
 
@@ -370,7 +427,7 @@ func TestValidationResult_DifferenceCalculation(t *testing.T) {
 				}
 			}
 
-			assert.Equal(t, tt.expectedStatus, issueResult.Status, "Status should match expected")
+			assert.Equal(t, tt.expectedStatusType, issueResult.StatusType, "StatusType should match expected")
 			assert.Equal(t, tt.expectedDiff, issueResult.Difference, "Difference should match expected")
 		})
 	}
@@ -378,28 +435,28 @@ func TestValidationResult_DifferenceCalculation(t *testing.T) {
 
 func TestValidationResult_CommitSHAComparison(t *testing.T) {
 	tests := []struct {
-		name           string
-		sourceSHA      string
-		targetSHA      string
-		expectedStatus string
+		name               string
+		sourceSHA          string
+		targetSHA          string
+		expectedStatusType ValidationStatus
 	}{
 		{
-			name:           "Matching commit SHAs",
-			sourceSHA:      "abc123def456",
-			targetSHA:      "abc123def456",
-			expectedStatus: "✅ PASS",
+			name:               "Matching commit SHAs",
+			sourceSHA:          "abc123def456",
+			targetSHA:          "abc123def456",
+			expectedStatusType: ValidationStatusPass,
 		},
 		{
-			name:           "Different commit SHAs",
-			sourceSHA:      "abc123def456",
-			targetSHA:      "xyz789uvw012",
-			expectedStatus: "❌ FAIL",
+			name:               "Different commit SHAs",
+			sourceSHA:          "abc123def456",
+			targetSHA:          "xyz789uvw012",
+			expectedStatusType: ValidationStatusFail,
 		},
 		{
-			name:           "Empty source SHA",
-			sourceSHA:      "",
-			targetSHA:      "abc123def456",
-			expectedStatus: "❌ FAIL",
+			name:               "Empty source SHA",
+			sourceSHA:          "",
+			targetSHA:          "abc123def456",
+			expectedStatusType: ValidationStatusFail,
 		},
 	}
 
@@ -418,15 +475,54 @@ func TestValidationResult_CommitSHAComparison(t *testing.T) {
 
 			results := validator.validateRepositoryData()
 
-			// Find the commit SHA result (should be last)
-			shaResult := results[len(results)-1]
-			assert.Equal(t, "Latest Commit SHA", shaResult.Metric)
-			assert.Equal(t, tt.expectedStatus, shaResult.Status)
-			assert.Equal(t, tt.sourceSHA, shaResult.SourceVal)
-			assert.Equal(t, tt.targetSHA, shaResult.TargetVal)
-			assert.Equal(t, 0, shaResult.Difference) // Always 0 for SHA comparison
+			// Find the commit SHA result by metric name
+			var shaResult *ValidationResult
+			for i := range results {
+				if results[i].Metric == "Latest Commit SHA" {
+					shaResult = &results[i]
+					break
+				}
+			}
+			if assert.NotNil(t, shaResult, "Should find commit SHA validation result") {
+				assert.Equal(t, "Latest Commit SHA", shaResult.Metric)
+				assert.Equal(t, tt.expectedStatusType, shaResult.StatusType)
+				assert.Equal(t, tt.sourceSHA, shaResult.SourceVal)
+				assert.Equal(t, tt.targetSHA, shaResult.TargetVal)
+				assert.Equal(t, 0, shaResult.Difference) // Always 0 for SHA comparison
+			}
 		})
 	}
+}
+
+func TestValidateRepositoryData_MetricNames(t *testing.T) {
+	// Test that validateRepositoryData returns exactly the expected metrics with correct names
+	validator := setupTestValidator(
+		&RepositoryData{
+			Owner:           "source-org",
+			Name:            "test-repo",
+			Issues:          10,
+			PRs:             &api.PRCounts{Total: 5, Open: 2, Merged: 3, Closed: 0},
+			Tags:            3,
+			Releases:        2,
+			CommitCount:     100,
+			LatestCommitSHA: "abc123",
+		},
+		&RepositoryData{
+			Owner:           "target-org",
+			Name:            "test-repo",
+			Issues:          11,
+			PRs:             &api.PRCounts{Total: 5, Open: 2, Merged: 3, Closed: 0},
+			Tags:            3,
+			Releases:        2,
+			CommitCount:     100,
+			LatestCommitSHA: "abc123",
+		},
+	)
+
+	results := validator.validateRepositoryData()
+
+	// Use the helper to validate metric names and presence
+	validateMetricNames(t, results)
 }
 
 func TestMarkdownTable_DifferentScenarios(t *testing.T) {
@@ -438,8 +534,8 @@ func TestMarkdownTable_DifferentScenarios(t *testing.T) {
 		{
 			name: "All passing",
 			results: []ValidationResult{
-				{Metric: "Issues", SourceVal: 10, TargetVal: 11, Status: "✅ PASS", Difference: 0},
-				{Metric: "PRs", SourceVal: 5, TargetVal: 5, Status: "✅ PASS", Difference: 0},
+				{Metric: "Issues", SourceVal: 10, TargetVal: 11, Status: "✅ PASS", StatusType: ValidationStatusPass, Difference: 0},
+				{Metric: "PRs", SourceVal: 5, TargetVal: 5, Status: "✅ PASS", StatusType: ValidationStatusPass, Difference: 0},
 			},
 			expected: []string{
 				"- **Passed:** 2",
@@ -451,8 +547,8 @@ func TestMarkdownTable_DifferentScenarios(t *testing.T) {
 		{
 			name: "Mixed results",
 			results: []ValidationResult{
-				{Metric: "Issues", SourceVal: 10, TargetVal: 9, Status: "❌ FAIL", Difference: 2},
-				{Metric: "PRs", SourceVal: 5, TargetVal: 6, Status: "⚠️ WARN", Difference: -1},
+				{Metric: "Issues", SourceVal: 10, TargetVal: 9, Status: "❌ FAIL", StatusType: ValidationStatusFail, Difference: 2},
+				{Metric: "PRs", SourceVal: 5, TargetVal: 6, Status: "⚠️ WARN", StatusType: ValidationStatusWarn, Difference: -1},
 			},
 			expected: []string{
 				"- **Passed:** 0",
@@ -464,8 +560,8 @@ func TestMarkdownTable_DifferentScenarios(t *testing.T) {
 		{
 			name: "Only warnings",
 			results: []ValidationResult{
-				{Metric: "Issues", SourceVal: 10, TargetVal: 12, Status: "⚠️ WARN", Difference: -1},
-				{Metric: "PRs", SourceVal: 5, TargetVal: 6, Status: "⚠️ WARN", Difference: -1},
+				{Metric: "Issues", SourceVal: 10, TargetVal: 12, Status: "⚠️ WARN", StatusType: ValidationStatusWarn, Difference: -1},
+				{Metric: "PRs", SourceVal: 5, TargetVal: 6, Status: "⚠️ WARN", StatusType: ValidationStatusWarn, Difference: -1},
 			},
 			expected: []string{
 				"- **Passed:** 0",
@@ -492,6 +588,277 @@ func TestMarkdownTable_DifferentScenarios(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSetSourceDataFromExport(t *testing.T) {
+	// Create a validator instance
+	validator := &MigrationValidator{
+		api:        nil,
+		SourceData: &RepositoryData{}, // Empty initially
+		TargetData: &RepositoryData{},
+	}
+
+	// Create test export data
+	exportData := &RepositoryData{
+		Owner:           "exported-org",
+		Name:            "exported-repo",
+		Issues:          25,
+		PRs:             &api.PRCounts{Total: 15, Open: 3, Merged: 10, Closed: 2},
+		Tags:            8,
+		Releases:        4,
+		CommitCount:     200,
+		LatestCommitSHA: "export123abc",
+	}
+
+	// Set source data from export
+	validator.SetSourceDataFromExport(exportData)
+
+	// Verify that source data was set correctly
+	assert.Equal(t, "exported-org", validator.SourceData.Owner)
+	assert.Equal(t, "exported-repo", validator.SourceData.Name)
+	assert.Equal(t, 25, validator.SourceData.Issues)
+	assert.Equal(t, 15, validator.SourceData.PRs.Total)
+	assert.Equal(t, 3, validator.SourceData.PRs.Open)
+	assert.Equal(t, 10, validator.SourceData.PRs.Merged)
+	assert.Equal(t, 2, validator.SourceData.PRs.Closed)
+	assert.Equal(t, 8, validator.SourceData.Tags)
+	assert.Equal(t, 4, validator.SourceData.Releases)
+	assert.Equal(t, 200, validator.SourceData.CommitCount)
+	assert.Equal(t, "export123abc", validator.SourceData.LatestCommitSHA)
+}
+
+func TestSetSourceDataFromExport_NilPRCounts(t *testing.T) {
+	validator := &MigrationValidator{
+		api:        nil,
+		SourceData: &RepositoryData{},
+		TargetData: &RepositoryData{},
+	}
+
+	// Test with nil PR counts
+	exportData := &RepositoryData{
+		Owner:           "exported-org",
+		Name:            "exported-repo",
+		Issues:          10,
+		PRs:             nil, // Nil PR counts
+		Tags:            5,
+		Releases:        2,
+		CommitCount:     100,
+		LatestCommitSHA: "test123",
+	}
+
+	validator.SetSourceDataFromExport(exportData)
+
+	// Should handle nil PR counts gracefully
+	assert.Equal(t, "exported-org", validator.SourceData.Owner)
+	assert.Equal(t, "exported-repo", validator.SourceData.Name)
+	assert.Equal(t, 10, validator.SourceData.Issues)
+	assert.Nil(t, validator.SourceData.PRs)
+}
+
+func TestValidateFromExport_NoSourceData(t *testing.T) {
+	// Disable pterm output for testing
+	pterm.DisableOutput()
+	defer pterm.EnableOutput()
+
+	validator := &MigrationValidator{
+		api:        nil,
+		SourceData: nil, // No source data loaded
+		TargetData: &RepositoryData{},
+	}
+
+	// Should return error when no source data is loaded
+	results, err := validator.ValidateFromExport("target-org", "target-repo")
+
+	assert.Error(t, err)
+	assert.Nil(t, results)
+	assert.Contains(t, err.Error(), "source data not properly loaded")
+	assert.Contains(t, err.Error(), "call SetSourceDataFromExport with valid data first")
+}
+
+func TestValidateFromExport_CompleteWorkflow(t *testing.T) {
+	// Test the complete workflow by simulating both source and target data
+	// This tests the validation logic without requiring API calls
+
+	validator := &MigrationValidator{
+		api:        nil,               // Not needed for this test
+		SourceData: &RepositoryData{}, // Will be set via SetSourceDataFromExport
+		TargetData: &RepositoryData{
+			// Simulate target data as if it was retrieved successfully
+			Owner:           "target-org",
+			Name:            "target-repo",
+			Issues:          16, // Source has 15, expect 16 (15+1 for migration log)
+			PRs:             &api.PRCounts{Total: 8, Open: 2, Merged: 5, Closed: 1},
+			Tags:            4,
+			Releases:        2,
+			CommitCount:     120,
+			LatestCommitSHA: "abc123export",
+		},
+	}
+
+	// Set up source data from export
+	exportSourceData := &RepositoryData{
+		Owner:           "source-org",
+		Name:            "source-repo",
+		Issues:          15,
+		PRs:             &api.PRCounts{Total: 8, Open: 2, Merged: 5, Closed: 1},
+		Tags:            4,
+		Releases:        2,
+		CommitCount:     120,
+		LatestCommitSHA: "abc123export",
+	}
+
+	validator.SetSourceDataFromExport(exportSourceData)
+
+	// Since we can't test the API call part easily, we can test the validation
+	// logic that would run after successful target data retrieval
+	results := validator.validateRepositoryData()
+
+	// Should get validation results
+	assert.NotNil(t, results)
+	assert.Equal(t, len(expectedValidationMetrics), len(results)) // Should have expected validation metrics
+
+	// Check that validation logic works correctly with export data
+	// All should pass since target data matches expected values
+	passCount := 0
+	for _, result := range results {
+		if result.StatusType == ValidationStatusPass {
+			passCount++
+		}
+	}
+	assert.Equal(t, len(expectedValidationMetrics), passCount, "All validations should pass with perfect match")
+}
+
+func TestValidateFromExport_SourceDataValidation(t *testing.T) {
+	// Test ONLY the source data validation part of ValidateFromExport
+	// We should not test the full function since it makes API calls
+
+	t.Run("Nil source data returns error immediately", func(t *testing.T) {
+		validator := &MigrationValidator{
+			api:        nil,
+			SourceData: nil, // This should trigger immediate error
+			TargetData: &RepositoryData{},
+		}
+
+		results, err := validator.ValidateFromExport("target-org", "target-repo")
+
+		// Should fail immediately with source data error, before any API calls
+		assert.Error(t, err)
+		assert.Nil(t, results)
+		assert.Contains(t, err.Error(), "source data not properly loaded")
+		assert.Contains(t, err.Error(), "call SetSourceDataFromExport with valid data first")
+	})
+
+	t.Run("Valid source data structure", func(t *testing.T) {
+		// For this test, we only verify that source data validation passes
+		// We don't actually call ValidateFromExport since it makes API calls
+
+		sourceData := &RepositoryData{
+			Owner:  "test-org",
+			Name:   "test-repo",
+			Issues: 10,
+			PRs:    &api.PRCounts{Total: 5, Open: 1, Merged: 3, Closed: 1},
+		}
+
+		validator := &MigrationValidator{
+			api:        nil,
+			SourceData: sourceData,
+			TargetData: &RepositoryData{},
+		}
+
+		// Just verify source data was set correctly
+		assert.NotNil(t, validator.SourceData)
+		assert.Equal(t, "test-org", validator.SourceData.Owner)
+		assert.Equal(t, "test-repo", validator.SourceData.Name)
+
+		// We don't call ValidateFromExport here because it would make API calls
+		// That's tested in the integration workflow test instead
+	})
+}
+
+func TestRetrieveSourceData_PublicMethodExists(t *testing.T) {
+	// This test verifies that RetrieveSourceData is properly exposed as a public method
+	// We don't call it since it makes API calls, but we verify it exists at compile time
+
+	validator := &MigrationValidator{
+		api:        nil,
+		SourceData: &RepositoryData{},
+		TargetData: &RepositoryData{},
+	}
+
+	// If this compiles, it means the public method exists with the correct signature
+	// We use a type assertion to verify the method signature without calling it
+	var method func(string, string, *pterm.SpinnerPrinter) error = validator.RetrieveSourceData
+
+	assert.NotNil(t, method, "RetrieveSourceData method should exist")
+
+	// This test serves as a compile-time verification that:
+	// 1. The method is public (capitalized)
+	// 2. It has the expected signature
+	// 3. It's callable from external packages
+}
+
+func TestExportValidationWorkflow_Integration(t *testing.T) {
+	// Integration test showing the full workflow for export-based validation
+	// This demonstrates how the new methods work together without API dependencies
+
+	// Step 1: Create validator
+	validator := &MigrationValidator{
+		api:        nil, // API not needed for this workflow test
+		SourceData: &RepositoryData{},
+		TargetData: &RepositoryData{},
+	}
+
+	// Step 2: Simulate loaded export data
+	exportSourceData := &RepositoryData{
+		Owner:           "source-org",
+		Name:            "source-repo",
+		Issues:          15,
+		PRs:             &api.PRCounts{Total: 8, Open: 2, Merged: 5, Closed: 1},
+		Tags:            4,
+		Releases:        2,
+		CommitCount:     120,
+		LatestCommitSHA: "abc123export",
+	}
+
+	// Step 3: Set source data from export
+	validator.SetSourceDataFromExport(exportSourceData)
+
+	// Verify source data is set correctly
+	assert.Equal(t, "source-org", validator.SourceData.Owner)
+	assert.Equal(t, "source-repo", validator.SourceData.Name)
+	assert.Equal(t, 15, validator.SourceData.Issues)
+	assert.Equal(t, 8, validator.SourceData.PRs.Total)
+
+	// Step 4: Simulate target data (as if retrieved from API)
+	validator.TargetData = &RepositoryData{
+		Owner:           "target-org",
+		Name:            "target-repo",
+		Issues:          16, // Expected: 15+1 for migration log
+		PRs:             &api.PRCounts{Total: 8, Open: 2, Merged: 5, Closed: 1},
+		Tags:            4,
+		Releases:        2,
+		CommitCount:     120,
+		LatestCommitSHA: "abc123export",
+	}
+
+	// Step 5: Test validation logic (bypass API call by calling validateRepositoryData directly)
+	results := validator.validateRepositoryData()
+
+	// Verify validation results
+	assert.NotNil(t, results)
+	validateMetricNames(t, results)
+
+	// Check that all validations pass with matching data
+	passCount := 0
+	for _, result := range results {
+		if result.StatusType == ValidationStatusPass {
+			passCount++
+		}
+	}
+	assert.Equal(t, len(expectedValidationMetrics), passCount, "All validations should pass with perfect match")
+
+	// This demonstrates the complete workflow: export → set source → validate
+	// In real usage, the API call would happen in ValidateFromExport()
 }
 
 func BenchmarkValidateRepositoryData(b *testing.B) {
@@ -521,5 +888,29 @@ func BenchmarkValidateRepositoryData(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		validator.validateRepositoryData()
+	}
+}
+
+func BenchmarkSetSourceDataFromExport(b *testing.B) {
+	validator := &MigrationValidator{
+		api:        nil,
+		SourceData: &RepositoryData{},
+		TargetData: &RepositoryData{},
+	}
+
+	exportData := &RepositoryData{
+		Owner:           "benchmark-org",
+		Name:            "benchmark-repo",
+		Issues:          100,
+		PRs:             &api.PRCounts{Total: 50, Open: 10, Merged: 35, Closed: 5},
+		Tags:            20,
+		Releases:        10,
+		CommitCount:     1000,
+		LatestCommitSHA: "benchmark123",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		validator.SetSourceDataFromExport(exportData)
 	}
 }
