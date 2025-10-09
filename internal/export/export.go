@@ -129,7 +129,6 @@ func exportToCSV(data ExportData, filename string) error {
 		"commits_count",
 		"latest_commit_sha",
 		"branch_protection_rules_count",
-		"rulesets_count",
 	}
 	if err := writer.Write(header); err != nil {
 		return fmt.Errorf("failed to write CSV header: %w", err)
@@ -158,7 +157,6 @@ func exportToCSV(data ExportData, filename string) error {
 		fmt.Sprintf("%d", data.Repository.CommitCount),
 		data.Repository.LatestCommitSHA,
 		fmt.Sprintf("%d", data.Repository.BranchProtectionRules),
-		fmt.Sprintf("%d", data.Repository.Rulesets),
 	}
 	if err := writer.Write(record); err != nil {
 		return fmt.Errorf("failed to write CSV record: %w", err)
