@@ -522,7 +522,7 @@ func (api *GitHubAPI) GetBranchProtectionRulesCount(clientType ClientType, owner
 	return query.Repository.BranchProtectionRules.TotalCount, nil
 }
 
-// GetWebhookCount retrieves the total count of webhooks for a repository using REST API
+// GetWebhookCount retrieves the count of active webhooks for a repository using REST API
 func (api *GitHubAPI) GetWebhookCount(clientType ClientType, owner, name string) (int, error) {
 	ctx := context.Background()
 
@@ -542,7 +542,7 @@ func (api *GitHubAPI) GetWebhookCount(clientType ClientType, owner, name string)
 
 	// List all webhooks for the repository
 	opts := &github.ListOptions{PerPage: 100}
-	var allWebhooks []*github.Hook
+	var activeWebhookCount int
 
 	for {
 		webhooks, resp, err := client.Repositories.ListHooks(ctx, owner, name, opts)
@@ -550,7 +550,12 @@ func (api *GitHubAPI) GetWebhookCount(clientType ClientType, owner, name string)
 			return 0, fmt.Errorf("failed to query %s repository webhook count: %v", clientName, err)
 		}
 
-		allWebhooks = append(allWebhooks, webhooks...)
+		// Count only active webhooks
+		for _, webhook := range webhooks {
+			if webhook.Active != nil && *webhook.Active {
+				activeWebhookCount++
+			}
+		}
 
 		if resp.NextPage == 0 {
 			break
@@ -558,5 +563,5 @@ func (api *GitHubAPI) GetWebhookCount(clientType ClientType, owner, name string)
 		opts.Page = resp.NextPage
 	}
 
-	return len(allWebhooks), nil
+	return activeWebhookCount, nil
 }

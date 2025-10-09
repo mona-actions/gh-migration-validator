@@ -220,7 +220,7 @@ The tool compares the following metrics between source and target repositories:
 - **Releases**: Total count of GitHub releases
 - **Commits**: Total commit count on default branch
 - **Branch Protection Rules**: Total count of branch protection rules configured for the repository
-- **Webhooks**: Total count of repository webhooks
+- **Webhooks**: Total count of active repository webhooks
 - **Latest Commit SHA**: Ensures both repositories have the same latest commit in default branch
 
 ## Validation Results

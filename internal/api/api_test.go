@@ -810,6 +810,46 @@ func TestGitHubAPI_GetWebhookCount(t *testing.T) {
 			expectedCount: 1,
 			expectedError: false,
 		},
+		{
+			name:       "mixed active and inactive webhooks - only counts active",
+			clientType: SourceClient,
+			owner:      "testowner",
+			repo:       "testrepo",
+			responseBody: `[
+				{
+					"id": 1,
+					"name": "web",
+					"active": true,
+					"events": ["push"],
+					"config": {
+						"url": "https://example.com/webhook1",
+						"content_type": "json"
+					}
+				},
+				{
+					"id": 2,
+					"name": "web",
+					"active": false,
+					"events": ["pull_request"],
+					"config": {
+						"url": "https://example.com/webhook2",
+						"content_type": "json"
+					}
+				},
+				{
+					"id": 3,
+					"name": "web",
+					"active": true,
+					"events": ["issues"],
+					"config": {
+						"url": "https://example.com/webhook3",
+						"content_type": "json"
+					}
+				}
+			]`,
+			expectedCount: 2,
+			expectedError: false,
+		},
 	}
 
 	for _, tt := range tests {
