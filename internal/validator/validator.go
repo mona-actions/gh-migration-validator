@@ -51,6 +51,7 @@ type RepositoryData struct {
 	CommitCount           int
 	LatestCommitSHA       string
 	BranchProtectionRules int
+	Webhooks              int
 }
 
 // ValidationResult represents the comparison between source and target
@@ -205,6 +206,15 @@ func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.
 	}
 	mv.SourceData.BranchProtectionRules = branchProtectionRules
 
+	// Get webhook count
+	spinner.UpdateText(fmt.Sprintf("Fetching webhooks from %s/%s...", owner, name))
+	webhooks, err := mv.api.GetWebhookCount(api.SourceClient, owner, name)
+	if err != nil {
+		spinner.Fail(fmt.Sprintf("Failed to fetch webhooks from %s/%s", owner, name))
+		return fmt.Errorf("failed to get source webhook count: %w", err)
+	}
+	mv.SourceData.Webhooks = webhooks
+
 	duration := time.Since(startTime)
 	spinner.Success(fmt.Sprintf("%s/%s retrieved successfully (%v)", owner, name, duration))
 
@@ -335,6 +345,15 @@ func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.
 	}
 	mv.TargetData.BranchProtectionRules = branchProtectionRules
 
+	// Get webhook count
+	spinner.UpdateText(fmt.Sprintf("Fetching webhooks from %s/%s...", owner, name))
+	webhooks, err := mv.api.GetWebhookCount(api.TargetClient, owner, name)
+	if err != nil {
+		spinner.Fail(fmt.Sprintf("Failed to fetch webhooks from %s/%s", owner, name))
+		return fmt.Errorf("failed to get target webhook count: %w", err)
+	}
+	mv.TargetData.Webhooks = webhooks
+
 	duration := time.Since(startTime)
 	spinner.Success(fmt.Sprintf("%s/%s retrieved successfully (%v)", owner, name, duration))
 
@@ -450,6 +469,19 @@ func (mv *MigrationValidator) validateRepositoryData() []ValidationResult {
 		Status:     branchProtectionStatus,
 		StatusType: branchProtectionStatusType,
 		Difference: branchProtectionDiff,
+	})
+
+	// Compare Webhooks
+	webhooksDiff := mv.SourceData.Webhooks - mv.TargetData.Webhooks
+	webhooksStatus, webhooksStatusType := getValidationStatus(webhooksDiff)
+
+	results = append(results, ValidationResult{
+		Metric:     "Webhooks",
+		SourceVal:  mv.SourceData.Webhooks,
+		TargetVal:  mv.TargetData.Webhooks,
+		Status:     webhooksStatus,
+		StatusType: webhooksStatusType,
+		Difference: webhooksDiff,
 	})
 
 	// Compare Latest Commit SHA

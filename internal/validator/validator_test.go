@@ -23,6 +23,7 @@ var expectedValidationMetrics = []string{
 	"Releases",
 	"Commits",
 	"Branch Protection Rules",
+	"Webhooks",
 	"Latest Commit SHA",
 }
 
@@ -77,6 +78,7 @@ func TestValidateRepositoryData_PerfectMatch(t *testing.T) {
 		CommitCount:           100,
 		LatestCommitSHA:       "abc123",
 		BranchProtectionRules: 4,
+		Webhooks:              2,
 	}
 
 	targetData := &RepositoryData{
@@ -89,6 +91,7 @@ func TestValidateRepositoryData_PerfectMatch(t *testing.T) {
 		CommitCount:           100,
 		LatestCommitSHA:       "abc123",
 		BranchProtectionRules: 4,
+		Webhooks:              2,
 	}
 
 	validator := setupTestValidator(sourceData, targetData)
@@ -144,6 +147,7 @@ func TestValidateRepositoryData_MissingData(t *testing.T) {
 		CommitCount:           100,
 		LatestCommitSHA:       "abc123",
 		BranchProtectionRules: 4,
+		Webhooks:              3,
 	}
 
 	targetData := &RepositoryData{
@@ -156,6 +160,7 @@ func TestValidateRepositoryData_MissingData(t *testing.T) {
 		CommitCount:           90,                                                     // Missing 10 commits
 		LatestCommitSHA:       "def456",                                               // Different commit SHA
 		BranchProtectionRules: 3,                                                      // Missing 1 rule
+		Webhooks:              1,                                                      // Missing 2 webhooks
 	}
 
 	validator := setupTestValidator(sourceData, targetData)
@@ -206,6 +211,7 @@ func TestValidateRepositoryData_ExtraData(t *testing.T) {
 		CommitCount:           100,
 		LatestCommitSHA:       "abc123",
 		BranchProtectionRules: 4,
+		Webhooks:              2,
 	}
 
 	targetData := &RepositoryData{
@@ -218,6 +224,7 @@ func TestValidateRepositoryData_ExtraData(t *testing.T) {
 		CommitCount:           110,                                                    // 10 extra commits
 		LatestCommitSHA:       "abc123",                                               // Same commit SHA
 		BranchProtectionRules: 6,                                                      // 2 extra rules
+		Webhooks:              5,                                                      // 3 extra webhooks
 	}
 
 	validator := setupTestValidator(sourceData, targetData)
