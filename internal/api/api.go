@@ -481,3 +481,83 @@ func (api *GitHubAPI) GetLatestCommitHash(clientType ClientType, owner, name str
 
 	return query.Repository.DefaultBranchRef.Target.Commit.OID, nil
 }
+
+// GetBranchProtectionRulesCount retrieves the total count of branch protection rules for a repository using GraphQL
+func (api *GitHubAPI) GetBranchProtectionRulesCount(clientType ClientType, owner, name string) (int, error) {
+	ctx := context.Background()
+
+	var query struct {
+		Repository struct {
+			NameWithOwner         string
+			BranchProtectionRules struct {
+				TotalCount int
+			}
+		} `graphql:"repository(owner: $owner, name: $name)"`
+	}
+
+	variables := map[string]interface{}{
+		"owner": githubv4.String(owner),
+		"name":  githubv4.String(name),
+	}
+
+	var client *RateLimitAwareGraphQLClient
+	var clientName string
+
+	switch clientType {
+	case SourceClient:
+		client = api.sourceGraphClient
+		clientName = "source"
+	case TargetClient:
+		client = api.targetGraphClient
+		clientName = "target"
+	default:
+		return 0, fmt.Errorf("invalid client type")
+	}
+
+	err := client.Query(ctx, &query, variables)
+	if err != nil {
+		return 0, fmt.Errorf("failed to query %s repository branch protection rules count: %v", clientName, err)
+	}
+
+	return query.Repository.BranchProtectionRules.TotalCount, nil
+}
+
+// GetRulesetsCount retrieves the total count of rulesets for a repository using GraphQL
+func (api *GitHubAPI) GetRulesetsCount(clientType ClientType, owner, name string) (int, error) {
+	ctx := context.Background()
+
+	var query struct {
+		Repository struct {
+			NameWithOwner string
+			Rulesets      struct {
+				TotalCount int
+			}
+		} `graphql:"repository(owner: $owner, name: $name)"`
+	}
+
+	variables := map[string]interface{}{
+		"owner": githubv4.String(owner),
+		"name":  githubv4.String(name),
+	}
+
+	var client *RateLimitAwareGraphQLClient
+	var clientName string
+
+	switch clientType {
+	case SourceClient:
+		client = api.sourceGraphClient
+		clientName = "source"
+	case TargetClient:
+		client = api.targetGraphClient
+		clientName = "target"
+	default:
+		return 0, fmt.Errorf("invalid client type")
+	}
+
+	err := client.Query(ctx, &query, variables)
+	if err != nil {
+		return 0, fmt.Errorf("failed to query %s repository rulesets count: %v", clientName, err)
+	}
+
+	return query.Repository.Rulesets.TotalCount, nil
+}

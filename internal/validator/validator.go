@@ -42,14 +42,16 @@ func getValidationStatus(diff int) (string, ValidationStatus) {
 
 // RepositoryData holds all the metrics for a repository
 type RepositoryData struct {
-	Owner           string
-	Name            string
-	Issues          int
-	PRs             *api.PRCounts
-	Tags            int
-	Releases        int
-	CommitCount     int
-	LatestCommitSHA string
+	Owner                 string
+	Name                  string
+	Issues                int
+	PRs                   *api.PRCounts
+	Tags                  int
+	Releases              int
+	CommitCount           int
+	LatestCommitSHA       string
+	BranchProtectionRules int
+	Rulesets              int
 }
 
 // ValidationResult represents the comparison between source and target
@@ -195,6 +197,24 @@ func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.
 	}
 	mv.SourceData.LatestCommitSHA = latestCommitSHA
 
+	// Get branch protection rules count
+	spinner.UpdateText(fmt.Sprintf("Fetching branch protection rules from %s/%s...", owner, name))
+	branchProtectionRules, err := mv.api.GetBranchProtectionRulesCount(api.SourceClient, owner, name)
+	if err != nil {
+		spinner.Fail(fmt.Sprintf("Failed to fetch branch protection rules from %s/%s", owner, name))
+		return fmt.Errorf("failed to get source branch protection rules count: %w", err)
+	}
+	mv.SourceData.BranchProtectionRules = branchProtectionRules
+
+	// Get rulesets count
+	spinner.UpdateText(fmt.Sprintf("Fetching rulesets from %s/%s...", owner, name))
+	rulesets, err := mv.api.GetRulesetsCount(api.SourceClient, owner, name)
+	if err != nil {
+		spinner.Fail(fmt.Sprintf("Failed to fetch rulesets from %s/%s", owner, name))
+		return fmt.Errorf("failed to get source rulesets count: %w", err)
+	}
+	mv.SourceData.Rulesets = rulesets
+
 	duration := time.Since(startTime)
 	spinner.Success(fmt.Sprintf("%s/%s retrieved successfully (%v)", owner, name, duration))
 
@@ -316,6 +336,24 @@ func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.
 	}
 	mv.TargetData.LatestCommitSHA = latestCommitSHA
 
+	// Get branch protection rules count
+	spinner.UpdateText(fmt.Sprintf("Fetching branch protection rules from %s/%s...", owner, name))
+	branchProtectionRules, err := mv.api.GetBranchProtectionRulesCount(api.TargetClient, owner, name)
+	if err != nil {
+		spinner.Fail(fmt.Sprintf("Failed to fetch branch protection rules from %s/%s", owner, name))
+		return fmt.Errorf("failed to get target branch protection rules count: %w", err)
+	}
+	mv.TargetData.BranchProtectionRules = branchProtectionRules
+
+	// Get rulesets count
+	spinner.UpdateText(fmt.Sprintf("Fetching rulesets from %s/%s...", owner, name))
+	rulesets, err := mv.api.GetRulesetsCount(api.TargetClient, owner, name)
+	if err != nil {
+		spinner.Fail(fmt.Sprintf("Failed to fetch rulesets from %s/%s", owner, name))
+		return fmt.Errorf("failed to get target rulesets count: %w", err)
+	}
+	mv.TargetData.Rulesets = rulesets
+
 	duration := time.Since(startTime)
 	spinner.Success(fmt.Sprintf("%s/%s retrieved successfully (%v)", owner, name, duration))
 
@@ -418,6 +456,32 @@ func (mv *MigrationValidator) validateRepositoryData() []ValidationResult {
 		Status:     commitStatus,
 		StatusType: commitStatusType,
 		Difference: commitDiff,
+	})
+
+	// Compare Branch Protection Rules
+	branchProtectionDiff := mv.SourceData.BranchProtectionRules - mv.TargetData.BranchProtectionRules
+	branchProtectionStatus, branchProtectionStatusType := getValidationStatus(branchProtectionDiff)
+
+	results = append(results, ValidationResult{
+		Metric:     "Branch Protection Rules",
+		SourceVal:  mv.SourceData.BranchProtectionRules,
+		TargetVal:  mv.TargetData.BranchProtectionRules,
+		Status:     branchProtectionStatus,
+		StatusType: branchProtectionStatusType,
+		Difference: branchProtectionDiff,
+	})
+
+	// Compare Rulesets
+	rulesetsDiff := mv.SourceData.Rulesets - mv.TargetData.Rulesets
+	rulesetsStatus, rulesetsStatusType := getValidationStatus(rulesetsDiff)
+
+	results = append(results, ValidationResult{
+		Metric:     "Rulesets",
+		SourceVal:  mv.SourceData.Rulesets,
+		TargetVal:  mv.TargetData.Rulesets,
+		Status:     rulesetsStatus,
+		StatusType: rulesetsStatusType,
+		Difference: rulesetsDiff,
 	})
 
 	// Compare Latest Commit SHA
