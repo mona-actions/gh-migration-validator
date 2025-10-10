@@ -481,3 +481,87 @@ func (api *GitHubAPI) GetLatestCommitHash(clientType ClientType, owner, name str
 
 	return query.Repository.DefaultBranchRef.Target.Commit.OID, nil
 }
+
+// GetBranchProtectionRulesCount retrieves the total count of branch protection rules for a repository using GraphQL
+func (api *GitHubAPI) GetBranchProtectionRulesCount(clientType ClientType, owner, name string) (int, error) {
+	ctx := context.Background()
+
+	var query struct {
+		Repository struct {
+			NameWithOwner         string
+			BranchProtectionRules struct {
+				TotalCount int
+			}
+		} `graphql:"repository(owner: $owner, name: $name)"`
+	}
+
+	variables := map[string]interface{}{
+		"owner": githubv4.String(owner),
+		"name":  githubv4.String(name),
+	}
+
+	var client *RateLimitAwareGraphQLClient
+	var clientName string
+
+	switch clientType {
+	case SourceClient:
+		client = api.sourceGraphClient
+		clientName = "source"
+	case TargetClient:
+		client = api.targetGraphClient
+		clientName = "target"
+	default:
+		return 0, fmt.Errorf("invalid client type")
+	}
+
+	err := client.Query(ctx, &query, variables)
+	if err != nil {
+		return 0, fmt.Errorf("failed to query %s repository branch protection rules count: %v", clientName, err)
+	}
+
+	return query.Repository.BranchProtectionRules.TotalCount, nil
+}
+
+// GetWebhookCount retrieves the count of active webhooks for a repository using REST API
+func (api *GitHubAPI) GetWebhookCount(clientType ClientType, owner, name string) (int, error) {
+	ctx := context.Background()
+
+	var client *github.Client
+	var clientName string
+
+	switch clientType {
+	case SourceClient:
+		client = api.sourceClient
+		clientName = "source"
+	case TargetClient:
+		client = api.targetClient
+		clientName = "target"
+	default:
+		return 0, fmt.Errorf("invalid client type")
+	}
+
+	// List all webhooks for the repository
+	opts := &github.ListOptions{PerPage: 100}
+	var activeWebhookCount int
+
+	for {
+		webhooks, resp, err := client.Repositories.ListHooks(ctx, owner, name, opts)
+		if err != nil {
+			return 0, fmt.Errorf("failed to query %s repository webhook count: %v", clientName, err)
+		}
+
+		// Count only active webhooks
+		for _, webhook := range webhooks {
+			if webhook.Active != nil && *webhook.Active {
+				activeWebhookCount++
+			}
+		}
+
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+
+	return activeWebhookCount, nil
+}

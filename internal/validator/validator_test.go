@@ -22,6 +22,8 @@ var expectedValidationMetrics = []string{
 	"Tags",
 	"Releases",
 	"Commits",
+	"Branch Protection Rules",
+	"Webhooks",
 	"Latest Commit SHA",
 }
 
@@ -67,25 +69,29 @@ func validateMetricNames(t *testing.T, results []ValidationResult) {
 
 func TestValidateRepositoryData_PerfectMatch(t *testing.T) {
 	sourceData := &RepositoryData{
-		Owner:           "source-org",
-		Name:            "test-repo",
-		Issues:          10,
-		PRs:             &api.PRCounts{Total: 5, Open: 2, Merged: 2, Closed: 1},
-		Tags:            3,
-		Releases:        2,
-		CommitCount:     100,
-		LatestCommitSHA: "abc123",
+		Owner:                 "source-org",
+		Name:                  "test-repo",
+		Issues:                10,
+		PRs:                   &api.PRCounts{Total: 5, Open: 2, Merged: 2, Closed: 1},
+		Tags:                  3,
+		Releases:              2,
+		CommitCount:           100,
+		LatestCommitSHA:       "abc123",
+		BranchProtectionRules: 4,
+		Webhooks:              2,
 	}
 
 	targetData := &RepositoryData{
-		Owner:           "target-org",
-		Name:            "test-repo",
-		Issues:          11, // Expected: source + 1 for migration log
-		PRs:             &api.PRCounts{Total: 5, Open: 2, Merged: 2, Closed: 1},
-		Tags:            3,
-		Releases:        2,
-		CommitCount:     100,
-		LatestCommitSHA: "abc123",
+		Owner:                 "target-org",
+		Name:                  "test-repo",
+		Issues:                11, // Expected: source + 1 for migration log
+		PRs:                   &api.PRCounts{Total: 5, Open: 2, Merged: 2, Closed: 1},
+		Tags:                  3,
+		Releases:              2,
+		CommitCount:           100,
+		LatestCommitSHA:       "abc123",
+		BranchProtectionRules: 4,
+		Webhooks:              2,
 	}
 
 	validator := setupTestValidator(sourceData, targetData)
@@ -132,25 +138,29 @@ func TestValidateRepositoryData_PerfectMatch(t *testing.T) {
 
 func TestValidateRepositoryData_MissingData(t *testing.T) {
 	sourceData := &RepositoryData{
-		Owner:           "source-org",
-		Name:            "test-repo",
-		Issues:          10,
-		PRs:             &api.PRCounts{Total: 5, Open: 2, Merged: 2, Closed: 1},
-		Tags:            3,
-		Releases:        2,
-		CommitCount:     100,
-		LatestCommitSHA: "abc123",
+		Owner:                 "source-org",
+		Name:                  "test-repo",
+		Issues:                10,
+		PRs:                   &api.PRCounts{Total: 5, Open: 2, Merged: 2, Closed: 1},
+		Tags:                  3,
+		Releases:              2,
+		CommitCount:           100,
+		LatestCommitSHA:       "abc123",
+		BranchProtectionRules: 4,
+		Webhooks:              3,
 	}
 
 	targetData := &RepositoryData{
-		Owner:           "target-org",
-		Name:            "test-repo",
-		Issues:          8,                                                      // Missing 3 (should be 11, but is 8)
-		PRs:             &api.PRCounts{Total: 3, Open: 1, Merged: 1, Closed: 1}, // Missing 2 total PRs
-		Tags:            2,                                                      // Missing 1 tag
-		Releases:        1,                                                      // Missing 1 release
-		CommitCount:     90,                                                     // Missing 10 commits
-		LatestCommitSHA: "def456",                                               // Different commit SHA
+		Owner:                 "target-org",
+		Name:                  "test-repo",
+		Issues:                8,                                                      // Missing 3 (should be 11, but is 8)
+		PRs:                   &api.PRCounts{Total: 3, Open: 1, Merged: 1, Closed: 1}, // Missing 2 total PRs
+		Tags:                  2,                                                      // Missing 1 tag
+		Releases:              1,                                                      // Missing 1 release
+		CommitCount:           90,                                                     // Missing 10 commits
+		LatestCommitSHA:       "def456",                                               // Different commit SHA
+		BranchProtectionRules: 3,                                                      // Missing 1 rule
+		Webhooks:              1,                                                      // Missing 2 webhooks
 	}
 
 	validator := setupTestValidator(sourceData, targetData)
@@ -192,25 +202,29 @@ func TestValidateRepositoryData_MissingData(t *testing.T) {
 
 func TestValidateRepositoryData_ExtraData(t *testing.T) {
 	sourceData := &RepositoryData{
-		Owner:           "source-org",
-		Name:            "test-repo",
-		Issues:          10,
-		PRs:             &api.PRCounts{Total: 5, Open: 2, Merged: 2, Closed: 1},
-		Tags:            3,
-		Releases:        2,
-		CommitCount:     100,
-		LatestCommitSHA: "abc123",
+		Owner:                 "source-org",
+		Name:                  "test-repo",
+		Issues:                10,
+		PRs:                   &api.PRCounts{Total: 5, Open: 2, Merged: 2, Closed: 1},
+		Tags:                  3,
+		Releases:              2,
+		CommitCount:           100,
+		LatestCommitSHA:       "abc123",
+		BranchProtectionRules: 4,
+		Webhooks:              2,
 	}
 
 	targetData := &RepositoryData{
-		Owner:           "target-org",
-		Name:            "test-repo",
-		Issues:          13,                                                     // 2 extra (should be 11, but is 13)
-		PRs:             &api.PRCounts{Total: 7, Open: 3, Merged: 3, Closed: 1}, // 2 extra PRs
-		Tags:            5,                                                      // 2 extra tags
-		Releases:        4,                                                      // 2 extra releases
-		CommitCount:     110,                                                    // 10 extra commits
-		LatestCommitSHA: "abc123",                                               // Same commit SHA
+		Owner:                 "target-org",
+		Name:                  "test-repo",
+		Issues:                13,                                                     // 2 extra (should be 11, but is 13)
+		PRs:                   &api.PRCounts{Total: 7, Open: 3, Merged: 3, Closed: 1}, // 2 extra PRs
+		Tags:                  5,                                                      // 2 extra tags
+		Releases:              4,                                                      // 2 extra releases
+		CommitCount:           110,                                                    // 10 extra commits
+		LatestCommitSHA:       "abc123",                                               // Same commit SHA
+		BranchProtectionRules: 6,                                                      // 2 extra rules
+		Webhooks:              5,                                                      // 3 extra webhooks
 	}
 
 	validator := setupTestValidator(sourceData, targetData)
