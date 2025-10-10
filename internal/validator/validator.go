@@ -137,8 +137,11 @@ func (mv *MigrationValidator) ValidateMigration(sourceOwner, sourceRepo, targetO
 }
 
 // retrieveSource retrieves all repository data from the source repository
+// Handles individual API failures gracefully by logging errors and continuing with default values
 func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.SpinnerPrinter) error {
 	startTime := time.Now()
+	var failedRequests []string
+	var successfulRequests int
 
 	mv.SourceData.Owner = owner
 	mv.SourceData.Name = name
@@ -147,76 +150,114 @@ func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.
 	spinner.UpdateText(fmt.Sprintf("Fetching issues from %s/%s...", owner, name))
 	issues, err := mv.api.GetIssueCount(api.SourceClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch issues from %s/%s", owner, name))
-		return fmt.Errorf("failed to get source issue count: %w", err)
+		pterm.Error.Printf("Failed to fetch issues from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "issues")
+		mv.SourceData.Issues = 0
+	} else {
+		mv.SourceData.Issues = issues
+		successfulRequests++
 	}
-	mv.SourceData.Issues = issues
 
 	// Get PR counts
 	spinner.UpdateText(fmt.Sprintf("Fetching pull requests from %s/%s...", owner, name))
 	prCounts, err := mv.api.GetPRCounts(api.SourceClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch pull requests from %s/%s", owner, name))
-		return fmt.Errorf("failed to get source PR counts: %w", err)
+		pterm.Error.Printf("Failed to fetch pull requests from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "pull requests")
+		mv.SourceData.PRs = &api.PRCounts{Total: 0, Open: 0, Merged: 0, Closed: 0}
+	} else {
+		mv.SourceData.PRs = prCounts
+		successfulRequests++
 	}
-	mv.SourceData.PRs = prCounts
 
 	// Get tag count
 	spinner.UpdateText(fmt.Sprintf("Fetching tags from %s/%s...", owner, name))
 	tags, err := mv.api.GetTagCount(api.SourceClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch tags from %s/%s", owner, name))
-		return fmt.Errorf("failed to get source tag count: %w", err)
+		pterm.Error.Printf("Failed to fetch tags from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "tags")
+		mv.SourceData.Tags = 0
+	} else {
+		mv.SourceData.Tags = tags
+		successfulRequests++
 	}
-	mv.SourceData.Tags = tags
 
 	// Get release count
 	spinner.UpdateText(fmt.Sprintf("Fetching releases from %s/%s...", owner, name))
 	releases, err := mv.api.GetReleaseCount(api.SourceClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch releases from %s/%s", owner, name))
-		return fmt.Errorf("failed to get source release count: %w", err)
+		pterm.Error.Printf("Failed to fetch releases from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "releases")
+		mv.SourceData.Releases = 0
+	} else {
+		mv.SourceData.Releases = releases
+		successfulRequests++
 	}
-	mv.SourceData.Releases = releases
 
 	// Get commit count
 	spinner.UpdateText(fmt.Sprintf("Fetching commit count from %s/%s...", owner, name))
 	commitCount, err := mv.api.GetCommitCount(api.SourceClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch commit count from %s/%s", owner, name))
-		return fmt.Errorf("failed to get source commit count: %w", err)
+		pterm.Error.Printf("Failed to fetch commit count from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "commits")
+		mv.SourceData.CommitCount = 0
+	} else {
+		mv.SourceData.CommitCount = commitCount
+		successfulRequests++
 	}
-	mv.SourceData.CommitCount = commitCount
 
 	// Get latest commit hash
 	spinner.UpdateText(fmt.Sprintf("Fetching latest commit hash from %s/%s...", owner, name))
 	latestCommitSHA, err := mv.api.GetLatestCommitHash(api.SourceClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch latest commit hash from %s/%s", owner, name))
-		return fmt.Errorf("failed to get source latest commit hash: %w", err)
+		pterm.Error.Printf("Failed to fetch latest commit hash from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "latest commit hash")
+		mv.SourceData.LatestCommitSHA = ""
+	} else {
+		mv.SourceData.LatestCommitSHA = latestCommitSHA
+		successfulRequests++
 	}
-	mv.SourceData.LatestCommitSHA = latestCommitSHA
 
 	// Get branch protection rules count
 	spinner.UpdateText(fmt.Sprintf("Fetching branch protection rules from %s/%s...", owner, name))
 	branchProtectionRules, err := mv.api.GetBranchProtectionRulesCount(api.SourceClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch branch protection rules from %s/%s", owner, name))
-		return fmt.Errorf("failed to get source branch protection rules count: %w", err)
+		pterm.Error.Printf("Failed to fetch branch protection rules from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "branch protection rules")
+		mv.SourceData.BranchProtectionRules = 0
+	} else {
+		mv.SourceData.BranchProtectionRules = branchProtectionRules
+		successfulRequests++
 	}
-	mv.SourceData.BranchProtectionRules = branchProtectionRules
 
 	// Get webhook count
 	spinner.UpdateText(fmt.Sprintf("Fetching webhooks from %s/%s...", owner, name))
 	webhooks, err := mv.api.GetWebhookCount(api.SourceClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch webhooks from %s/%s", owner, name))
-		return fmt.Errorf("failed to get source webhook count: %w", err)
+		pterm.Error.Printf("Failed to fetch webhooks from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "webhooks")
+		mv.SourceData.Webhooks = 0
+	} else {
+		mv.SourceData.Webhooks = webhooks
+		successfulRequests++
 	}
-	mv.SourceData.Webhooks = webhooks
 
 	duration := time.Since(startTime)
-	spinner.Success(fmt.Sprintf("%s/%s retrieved successfully (%v)", owner, name, duration))
+
+	// Determine success/failure status
+	if successfulRequests == 0 {
+		spinner.Fail(fmt.Sprintf("Failed to retrieve any data from %s/%s", owner, name))
+		return fmt.Errorf("all API requests failed for %s/%s", owner, name)
+	}
+
+	if len(failedRequests) > 0 {
+		spinner.Warning(fmt.Sprintf("%s/%s retrieved with %d successful and %d failed requests (%v)",
+			owner, name, successfulRequests, len(failedRequests), duration))
+		pterm.Warning.Printf("Failed to retrieve: %v\n", failedRequests)
+		pterm.Info.Println("Export will continue with available data (failed requests will have default values)")
+	} else {
+		spinner.Success(fmt.Sprintf("%s/%s retrieved successfully (%v)", owner, name, duration))
+	}
 
 	return nil
 }
@@ -276,8 +317,11 @@ func (mv *MigrationValidator) ValidateFromExport(targetOwner, targetRepo string)
 }
 
 // retrieveTarget retrieves all repository data from the target repository
+// Handles individual API failures gracefully by logging errors and continuing with default values
 func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.SpinnerPrinter) error {
 	startTime := time.Now()
+	var failedRequests []string
+	var successfulRequests int
 
 	mv.TargetData.Owner = owner
 	mv.TargetData.Name = name
@@ -286,76 +330,114 @@ func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.
 	spinner.UpdateText(fmt.Sprintf("Fetching issues from %s/%s...", owner, name))
 	issues, err := mv.api.GetIssueCount(api.TargetClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch issues from %s/%s", owner, name))
-		return fmt.Errorf("failed to get target issue count: %w", err)
+		pterm.Error.Printf("Failed to fetch issues from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "issues")
+		mv.TargetData.Issues = 0
+	} else {
+		mv.TargetData.Issues = issues
+		successfulRequests++
 	}
-	mv.TargetData.Issues = issues
 
 	// Get PR counts
 	spinner.UpdateText(fmt.Sprintf("Fetching pull requests from %s/%s...", owner, name))
 	prCounts, err := mv.api.GetPRCounts(api.TargetClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch pull requests from %s/%s", owner, name))
-		return fmt.Errorf("failed to get target PR counts: %w", err)
+		pterm.Error.Printf("Failed to fetch pull requests from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "pull requests")
+		mv.TargetData.PRs = &api.PRCounts{Total: 0, Open: 0, Merged: 0, Closed: 0}
+	} else {
+		mv.TargetData.PRs = prCounts
+		successfulRequests++
 	}
-	mv.TargetData.PRs = prCounts
 
 	// Get tag count
 	spinner.UpdateText(fmt.Sprintf("Fetching tags from %s/%s...", owner, name))
 	tags, err := mv.api.GetTagCount(api.TargetClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch tags from %s/%s", owner, name))
-		return fmt.Errorf("failed to get target tag count: %w", err)
+		pterm.Error.Printf("Failed to fetch tags from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "tags")
+		mv.TargetData.Tags = 0
+	} else {
+		mv.TargetData.Tags = tags
+		successfulRequests++
 	}
-	mv.TargetData.Tags = tags
 
 	// Get release count
 	spinner.UpdateText(fmt.Sprintf("Fetching releases from %s/%s...", owner, name))
 	releases, err := mv.api.GetReleaseCount(api.TargetClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch releases from %s/%s", owner, name))
-		return fmt.Errorf("failed to get target release count: %w", err)
+		pterm.Error.Printf("Failed to fetch releases from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "releases")
+		mv.TargetData.Releases = 0
+	} else {
+		mv.TargetData.Releases = releases
+		successfulRequests++
 	}
-	mv.TargetData.Releases = releases
 
 	// Get commit count
 	spinner.UpdateText(fmt.Sprintf("Fetching commit count from %s/%s...", owner, name))
 	commitCount, err := mv.api.GetCommitCount(api.TargetClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch commit count from %s/%s", owner, name))
-		return fmt.Errorf("failed to get target commit count: %w", err)
+		pterm.Error.Printf("Failed to fetch commit count from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "commits")
+		mv.TargetData.CommitCount = 0
+	} else {
+		mv.TargetData.CommitCount = commitCount
+		successfulRequests++
 	}
-	mv.TargetData.CommitCount = commitCount
 
 	// Get latest commit hash
 	spinner.UpdateText(fmt.Sprintf("Fetching latest commit hash from %s/%s...", owner, name))
 	latestCommitSHA, err := mv.api.GetLatestCommitHash(api.TargetClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch latest commit hash from %s/%s", owner, name))
-		return fmt.Errorf("failed to get target latest commit hash: %w", err)
+		pterm.Error.Printf("Failed to fetch latest commit hash from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "latest commit hash")
+		mv.TargetData.LatestCommitSHA = ""
+	} else {
+		mv.TargetData.LatestCommitSHA = latestCommitSHA
+		successfulRequests++
 	}
-	mv.TargetData.LatestCommitSHA = latestCommitSHA
 
 	// Get branch protection rules count
 	spinner.UpdateText(fmt.Sprintf("Fetching branch protection rules from %s/%s...", owner, name))
 	branchProtectionRules, err := mv.api.GetBranchProtectionRulesCount(api.TargetClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch branch protection rules from %s/%s", owner, name))
-		return fmt.Errorf("failed to get target branch protection rules count: %w", err)
+		pterm.Error.Printf("Failed to fetch branch protection rules from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "branch protection rules")
+		mv.TargetData.BranchProtectionRules = 0
+	} else {
+		mv.TargetData.BranchProtectionRules = branchProtectionRules
+		successfulRequests++
 	}
-	mv.TargetData.BranchProtectionRules = branchProtectionRules
 
 	// Get webhook count
 	spinner.UpdateText(fmt.Sprintf("Fetching webhooks from %s/%s...", owner, name))
 	webhooks, err := mv.api.GetWebhookCount(api.TargetClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch webhooks from %s/%s", owner, name))
-		return fmt.Errorf("failed to get target webhook count: %w", err)
+		pterm.Error.Printf("Failed to fetch webhooks from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "webhooks")
+		mv.TargetData.Webhooks = 0
+	} else {
+		mv.TargetData.Webhooks = webhooks
+		successfulRequests++
 	}
-	mv.TargetData.Webhooks = webhooks
 
 	duration := time.Since(startTime)
-	spinner.Success(fmt.Sprintf("%s/%s retrieved successfully (%v)", owner, name, duration))
+
+	// Determine success/failure status
+	if successfulRequests == 0 {
+		spinner.Fail(fmt.Sprintf("Failed to retrieve any data from %s/%s", owner, name))
+		return fmt.Errorf("all API requests failed for %s/%s", owner, name)
+	}
+
+	if len(failedRequests) > 0 {
+		spinner.Warning(fmt.Sprintf("%s/%s retrieved with %d successful and %d failed requests (%v)",
+			owner, name, successfulRequests, len(failedRequests), duration))
+		pterm.Warning.Printf("Failed to retrieve: %v\n", failedRequests)
+		pterm.Info.Println("Validation will continue with available data (failed requests will have default values)")
+	} else {
+		spinner.Success(fmt.Sprintf("%s/%s retrieved successfully (%v)", owner, name, duration))
+	}
 
 	return nil
 }
