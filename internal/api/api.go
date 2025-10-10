@@ -178,6 +178,30 @@ func newGitHubGraphQLClient(config ClientConfig) *RateLimitAwareGraphQLClient {
 	}
 }
 
+// getGraphQLClient returns the appropriate GraphQL client and client name based on the client type
+func (api *GitHubAPI) getGraphQLClient(clientType ClientType) (*RateLimitAwareGraphQLClient, string, error) {
+	switch clientType {
+	case SourceClient:
+		return api.sourceGraphClient, "source", nil
+	case TargetClient:
+		return api.targetGraphClient, "target", nil
+	default:
+		return nil, "", fmt.Errorf("invalid client type")
+	}
+}
+
+// getRESTClient returns the appropriate REST client and client name based on the client type
+func (api *GitHubAPI) getRESTClient(clientType ClientType) (*github.Client, string, error) {
+	switch clientType {
+	case SourceClient:
+		return api.sourceClient, "source", nil
+	case TargetClient:
+		return api.targetClient, "target", nil
+	default:
+		return nil, "", fmt.Errorf("invalid client type")
+	}
+}
+
 func (c *RateLimitAwareGraphQLClient) Query(ctx context.Context, q interface{}, variables map[string]interface{}) error {
 	var rateLimitQuery struct {
 		RateLimit struct {
@@ -227,21 +251,12 @@ func (api *GitHubAPI) GetIssueCount(clientType ClientType, owner, name string) (
 		"name":  githubv4.String(name),
 	}
 
-	var client *RateLimitAwareGraphQLClient
-	var clientName string
-
-	switch clientType {
-	case SourceClient:
-		client = api.sourceGraphClient
-		clientName = "source"
-	case TargetClient:
-		client = api.targetGraphClient
-		clientName = "target"
-	default:
-		return 0, fmt.Errorf("invalid client type")
+	client, clientName, err := api.getGraphQLClient(clientType)
+	if err != nil {
+		return 0, err
 	}
 
-	err := client.Query(ctx, &query, variables)
+	err = client.Query(ctx, &query, variables)
 	if err != nil {
 		return 0, fmt.Errorf("failed to query %s repository issue count: %v", clientName, err)
 	}
@@ -281,21 +296,12 @@ func (api *GitHubAPI) GetPRCounts(clientType ClientType, owner, name string) (*P
 		"name":  githubv4.String(name),
 	}
 
-	var client *RateLimitAwareGraphQLClient
-	var clientName string
-
-	switch clientType {
-	case SourceClient:
-		client = api.sourceGraphClient
-		clientName = "source"
-	case TargetClient:
-		client = api.targetGraphClient
-		clientName = "target"
-	default:
-		return nil, fmt.Errorf("invalid client type")
+	client, clientName, err := api.getGraphQLClient(clientType)
+	if err != nil {
+		return nil, err
 	}
 
-	err := client.Query(ctx, &query, variables)
+	err = client.Query(ctx, &query, variables)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query %s repository PR counts: %v", clientName, err)
 	}
@@ -330,21 +336,12 @@ func (api *GitHubAPI) GetTagCount(clientType ClientType, owner, name string) (in
 		"name":  githubv4.String(name),
 	}
 
-	var client *RateLimitAwareGraphQLClient
-	var clientName string
-
-	switch clientType {
-	case SourceClient:
-		client = api.sourceGraphClient
-		clientName = "source"
-	case TargetClient:
-		client = api.targetGraphClient
-		clientName = "target"
-	default:
-		return 0, fmt.Errorf("invalid client type")
+	client, clientName, err := api.getGraphQLClient(clientType)
+	if err != nil {
+		return 0, err
 	}
 
-	err := client.Query(ctx, &query, variables)
+	err = client.Query(ctx, &query, variables)
 	if err != nil {
 		return 0, fmt.Errorf("failed to query %s repository tag count: %v", clientName, err)
 	}
@@ -370,21 +367,12 @@ func (api *GitHubAPI) GetReleaseCount(clientType ClientType, owner, name string)
 		"name":  githubv4.String(name),
 	}
 
-	var client *RateLimitAwareGraphQLClient
-	var clientName string
-
-	switch clientType {
-	case SourceClient:
-		client = api.sourceGraphClient
-		clientName = "source"
-	case TargetClient:
-		client = api.targetGraphClient
-		clientName = "target"
-	default:
-		return 0, fmt.Errorf("invalid client type")
+	client, clientName, err := api.getGraphQLClient(clientType)
+	if err != nil {
+		return 0, err
 	}
 
-	err := client.Query(ctx, &query, variables)
+	err = client.Query(ctx, &query, variables)
 	if err != nil {
 		return 0, fmt.Errorf("failed to query %s repository release count: %v", clientName, err)
 	}
@@ -416,21 +404,12 @@ func (api *GitHubAPI) GetCommitCount(clientType ClientType, owner, name string) 
 		"name":  githubv4.String(name),
 	}
 
-	var client *RateLimitAwareGraphQLClient
-	var clientName string
-
-	switch clientType {
-	case SourceClient:
-		client = api.sourceGraphClient
-		clientName = "source"
-	case TargetClient:
-		client = api.targetGraphClient
-		clientName = "target"
-	default:
-		return 0, fmt.Errorf("invalid client type")
+	client, clientName, err := api.getGraphQLClient(clientType)
+	if err != nil {
+		return 0, err
 	}
 
-	err := client.Query(ctx, &query, variables)
+	err = client.Query(ctx, &query, variables)
 	if err != nil {
 		return 0, fmt.Errorf("failed to query %s repository commit count: %v", clientName, err)
 	}
@@ -460,21 +439,12 @@ func (api *GitHubAPI) GetLatestCommitHash(clientType ClientType, owner, name str
 		"name":  githubv4.String(name),
 	}
 
-	var client *RateLimitAwareGraphQLClient
-	var clientName string
-
-	switch clientType {
-	case SourceClient:
-		client = api.sourceGraphClient
-		clientName = "source"
-	case TargetClient:
-		client = api.targetGraphClient
-		clientName = "target"
-	default:
-		return "", fmt.Errorf("invalid client type")
+	client, clientName, err := api.getGraphQLClient(clientType)
+	if err != nil {
+		return "", err
 	}
 
-	err := client.Query(ctx, &query, variables)
+	err = client.Query(ctx, &query, variables)
 	if err != nil {
 		return "", fmt.Errorf("failed to query %s repository latest commit hash: %v", clientName, err)
 	}
@@ -500,21 +470,12 @@ func (api *GitHubAPI) GetBranchProtectionRulesCount(clientType ClientType, owner
 		"name":  githubv4.String(name),
 	}
 
-	var client *RateLimitAwareGraphQLClient
-	var clientName string
-
-	switch clientType {
-	case SourceClient:
-		client = api.sourceGraphClient
-		clientName = "source"
-	case TargetClient:
-		client = api.targetGraphClient
-		clientName = "target"
-	default:
-		return 0, fmt.Errorf("invalid client type")
+	client, clientName, err := api.getGraphQLClient(clientType)
+	if err != nil {
+		return 0, err
 	}
 
-	err := client.Query(ctx, &query, variables)
+	err = client.Query(ctx, &query, variables)
 	if err != nil {
 		return 0, fmt.Errorf("failed to query %s repository branch protection rules count: %v", clientName, err)
 	}
@@ -526,18 +487,9 @@ func (api *GitHubAPI) GetBranchProtectionRulesCount(clientType ClientType, owner
 func (api *GitHubAPI) GetWebhookCount(clientType ClientType, owner, name string) (int, error) {
 	ctx := context.Background()
 
-	var client *github.Client
-	var clientName string
-
-	switch clientType {
-	case SourceClient:
-		client = api.sourceClient
-		clientName = "source"
-	case TargetClient:
-		client = api.targetClient
-		clientName = "target"
-	default:
-		return 0, fmt.Errorf("invalid client type")
+	client, clientName, err := api.getRESTClient(clientType)
+	if err != nil {
+		return 0, err
 	}
 
 	// List all webhooks for the repository
