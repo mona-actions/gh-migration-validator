@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,7 +58,8 @@ func ExtractTarGz(srcPath, destPath string) error {
 		cleanFullPath := filepath.Clean(fullPath)
 
 		// Check if the clean full path is within the destination directory
-		if !strings.HasPrefix(cleanFullPath, cleanDestPath+string(os.PathSeparator)) && cleanFullPath != cleanDestPath {
+		// Also prevent files from overwriting the destination directory itself
+		if !strings.HasPrefix(cleanFullPath, cleanDestPath+string(os.PathSeparator)) {
 			return fmt.Errorf("invalid file path: %s (resolved to %s, outside %s)", header.Name, cleanFullPath, cleanDestPath)
 		}
 
@@ -83,7 +85,7 @@ func ExtractTarGz(srcPath, destPath string) error {
 
 		default:
 			// Skip other file types (block devices, character devices, etc.)
-			fmt.Printf("Skipping unsupported file type for %s (type: %d)\n", header.Name, header.Typeflag)
+			log.Printf("Skipping unsupported file type for %s (type: %d)\n", header.Name, header.Typeflag)
 		}
 	}
 

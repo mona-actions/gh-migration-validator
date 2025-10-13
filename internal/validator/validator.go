@@ -27,6 +27,9 @@ const (
 	ValidationStatusWarn
 )
 
+// MigrationLogIssueOffset represents the additional issue created during migration
+const MigrationLogIssueOffset = 1
+
 // getValidationStatus returns both display string and enum value based on difference
 // diff > 0: target has fewer items than source (FAIL)
 // diff < 0: target has more items than source (WARN)
@@ -451,14 +454,14 @@ func (mv *MigrationValidator) validateRepositoryData() []ValidationResult {
 
 	var results []ValidationResult
 
-	// Compare Issues (target should have source issues + 1 for migration logging issue)
-	expectedTargetIssues := mv.SourceData.Issues + 1
+	// Compare Issues (target should have source issues + migration log issue)
+	expectedTargetIssues := mv.SourceData.Issues + MigrationLogIssueOffset
 	issueDiff := expectedTargetIssues - mv.TargetData.Issues
 	issueStatus, issueStatusType := getValidationStatus(issueDiff)
 
 	results = append(results, ValidationResult{
 		Metric:     "Issues (expected +1 for migration log)",
-		SourceVal:  fmt.Sprintf("%d (expected target: %d)", mv.SourceData.Issues, expectedTargetIssues),
+		SourceVal:  mv.SourceData.Issues,
 		TargetVal:  mv.TargetData.Issues,
 		Status:     issueStatus,
 		StatusType: issueStatusType,
@@ -639,13 +642,13 @@ func (mv *MigrationValidator) validateRepositoryData() []ValidationResult {
 		})
 
 		// Then, compare migration archive with target data to check migration success
-		expectedTargetFromArchive := mv.SourceData.MigrationArchive.Issues + 1
+		expectedTargetFromArchive := mv.SourceData.MigrationArchive.Issues + MigrationLogIssueOffset
 		archiveToTargetIssuesDiff := expectedTargetFromArchive - mv.TargetData.Issues
 		archiveToTargetIssuesStatus, archiveToTargetIssuesStatusType := getValidationStatus(archiveToTargetIssuesDiff)
 
 		results = append(results, ValidationResult{
 			Metric:     "Archive vs Target Issues (expected +1 for migration log)",
-			SourceVal:  fmt.Sprintf("%d (expected target: %d)", mv.SourceData.MigrationArchive.Issues, expectedTargetFromArchive),
+			SourceVal:  mv.SourceData.MigrationArchive.Issues,
 			TargetVal:  mv.TargetData.Issues,
 			Status:     archiveToTargetIssuesStatus,
 			StatusType: archiveToTargetIssuesStatusType,
