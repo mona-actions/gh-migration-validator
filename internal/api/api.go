@@ -3,8 +3,10 @@ package api
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -516,4 +518,157 @@ func (api *GitHubAPI) GetWebhookCount(clientType ClientType, owner, name string)
 	}
 
 	return activeWebhookCount, nil
+}
+
+// ListOrganizationMigrations retrieves the list of organization migrations using REST API
+// Limited to the last 100 migrations
+func (api *GitHubAPI) ListOrganizationMigrations(clientType ClientType, org string) ([]*github.Migration, error) {
+	ctx := context.Background()
+
+	client, clientName, err := api.getRESTClient(clientType)
+	if err != nil {
+		return nil, err
+	}
+
+	opts := &github.ListOptions{PerPage: 100}
+	var allMigrations []*github.Migration
+	migrationCount := 0
+	maxMigrations := 100
+
+	for {
+		migrations, resp, err := client.Migrations.ListMigrations(ctx, org, opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list %s organization migrations: %v", clientName, err)
+		}
+
+		for _, migration := range migrations {
+			if migrationCount >= maxMigrations {
+				break
+			}
+			allMigrations = append(allMigrations, migration)
+			migrationCount++
+		}
+
+		if resp.NextPage == 0 || migrationCount >= maxMigrations {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+
+	return allMigrations, nil
+}
+
+// MigrationInfo holds information about a migration for display to user
+type MigrationInfo struct {
+	ID           int64
+	CreatedAt    string
+	UpdatedAt    string
+	State        string
+	Repositories []string
+}
+
+// FindMigrationsByRepository finds migrations that contain the specified repository
+func (api *GitHubAPI) FindMigrationsByRepository(clientType ClientType, org, repoName string) ([]*MigrationInfo, error) {
+	migrations, err := api.ListOrganizationMigrations(clientType, org)
+	if err != nil {
+		return nil, err
+	}
+
+	var matchingMigrations []*MigrationInfo
+
+	for _, migration := range migrations {
+		// Check if this migration contains the target repository
+		for _, repo := range migration.Repositories {
+			if repo.GetName() == repoName {
+				migrationInfo := &MigrationInfo{
+					ID:        migration.GetID(),
+					CreatedAt: migration.GetCreatedAt(),
+					UpdatedAt: migration.GetUpdatedAt(),
+					State:     migration.GetState(),
+				}
+
+				// Collect all repository names in this migration
+				for _, r := range migration.Repositories {
+					migrationInfo.Repositories = append(migrationInfo.Repositories, r.GetName())
+				}
+
+				matchingMigrations = append(matchingMigrations, migrationInfo)
+				break // Found the repo in this migration, move to next migration
+			}
+		}
+	}
+
+	return matchingMigrations, nil
+}
+
+// DownloadMigrationArchive downloads a migration archive and returns the file path
+func (api *GitHubAPI) DownloadMigrationArchive(clientType ClientType, org string, migrationID int64, outputPath string) (string, error) {
+	ctx := context.Background()
+
+	client, clientName, err := api.getRESTClient(clientType)
+	if err != nil {
+		return "", err
+	}
+
+	// Get the download URL for the migration archive
+	url, err := client.Migrations.MigrationArchiveURL(ctx, org, migrationID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get %s migration archive URL: %v", clientName, err)
+	}
+
+	// Create HTTP client for downloading
+	httpClient, err := createAuthenticatedClient(getClientConfigForType(clientType))
+	if err != nil {
+		return "", fmt.Errorf("failed to create download client: %v", err)
+	}
+
+	// Download the file
+	downloadResp, err := httpClient.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("failed to download migration archive: %v", err)
+	}
+	defer downloadResp.Body.Close()
+
+	if downloadResp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to download migration archive: status %d", downloadResp.StatusCode)
+	}
+
+	// Create the output file
+	file, err := os.Create(outputPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create output file: %v", err)
+	}
+	defer file.Close()
+
+	// Copy the response body to the file
+	_, err = io.Copy(file, downloadResp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to save migration archive: %v", err)
+	}
+
+	return outputPath, nil
+}
+
+// Helper function to get client config for a given client type
+func getClientConfigForType(clientType ClientType) ClientConfig {
+	switch clientType {
+	case SourceClient:
+		return ClientConfig{
+			Token:          viper.GetString("SOURCE_TOKEN"),
+			Hostname:       viper.GetString("SOURCE_HOSTNAME"),
+			AppID:          viper.GetString("SOURCE_APP_ID"),
+			PrivateKey:     []byte(viper.GetString("SOURCE_PRIVATE_KEY")),
+			InstallationID: viper.GetInt64("SOURCE_INSTALLATION_ID"),
+		}
+	case TargetClient:
+		return ClientConfig{
+			Token:          viper.GetString("TARGET_TOKEN"),
+			Hostname:       viper.GetString("TARGET_HOSTNAME"),
+			AppID:          viper.GetString("TARGET_APP_ID"),
+			PrivateKey:     []byte(viper.GetString("TARGET_PRIVATE_KEY")),
+			InstallationID: viper.GetInt64("TARGET_INSTALLATION_ID"),
+		}
+	default:
+		return ClientConfig{}
+	}
 }

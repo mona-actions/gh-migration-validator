@@ -6,6 +6,7 @@ package cmd
 import (
 	"fmt"
 	"mona-actions/gh-migration-validator/internal/export"
+	"mona-actions/gh-migration-validator/internal/migrationarchive"
 	"mona-actions/gh-migration-validator/internal/validator"
 	"os"
 	"time"
@@ -28,7 +29,11 @@ This command fetches and exports repository metadata including:
 - Commits count
 - Latest commit hash
 
-The data can be exported in JSON or CSV format with a timestamp.`,
+The data can be exported in JSON or CSV format with a timestamp.
+
+Optionally, you can download and extract migration archives using the --download-archive flag.
+The tool will automatically search for migrations containing the specified repository
+and allow you to select from multiple matches if available.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Get parameters from flags
 		sourceOrganization := cmd.Flag("source-organization").Value.String()
@@ -37,6 +42,7 @@ The data can be exported in JSON or CSV format with a timestamp.`,
 		sourceRepo := cmd.Flag("source-repo").Value.String()
 		outputFormat := cmd.Flag("format").Value.String()
 		outputFile := cmd.Flag("output").Value.String()
+		downloadArchive, _ := cmd.Flags().GetBool("download-archive")
 
 		// Only set ENV variables if flag values are provided (not empty)
 		if sourceOrganization != "" {
@@ -79,6 +85,16 @@ The data can be exported in JSON or CSV format with a timestamp.`,
 			fmt.Printf("Export failed: %v\n", err)
 			os.Exit(1)
 		}
+
+		// Handle migration archive download if requested
+		if downloadArchive {
+			fmt.Println("Searching for migration archives...")
+			err := migrationarchive.DownloadAndExtractArchive(ghAPI, sourceOrganization, sourceRepo)
+			if err != nil {
+				fmt.Printf("Migration archive download failed: %v\n", err)
+				os.Exit(1)
+			}
+		}
 	},
 }
 
@@ -100,6 +116,8 @@ func init() {
 	exportCmd.Flags().StringP("format", "f", "json", "Output format: json or csv")
 
 	exportCmd.Flags().StringP("output", "o", "", "Output file path (if not provided, will use default naming)")
+
+	exportCmd.Flags().BoolP("download-archive", "d", false, "Download and extract migration archive for the specified repository")
 }
 
 // checkExportVars validates the configuration for export command
