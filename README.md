@@ -6,6 +6,10 @@ A GitHub CLI extension for validating GitHub organization and repository migrati
 
 The GitHub Migration Validator helps ensure that your migration from one GitHub organization/repository to another has been completed successfully. It compares various repository metrics (issues, pull requests, tags, releases, commits) between source and target repositories and provides a detailed validation report.
 
+## Documentation
+
+- **[Migration Archive Support](docs/migration-archive.md)** - Comprehensive guide for enhanced validation using GitHub migration archives
+
 ## Install
 
 ```bash
@@ -103,6 +107,10 @@ gh migration-validator export \
   --output ".exports/my-export.json"
 ```
 
+### Export with Migration Archive
+
+The tool can also download and analyze migration archives to include additional validation metrics. See the [Migration Archive Documentation](docs/migration-archive.md) for detailed information.
+
 ### Export Options
 
 - `--source-organization` (required): Source organization name
@@ -111,6 +119,10 @@ gh migration-validator export \
 - `--source-hostname` (optional): GitHub Enterprise Server URL
 - `--format` (optional): Export format - `json` or `csv` (default: `json`)
 - `--output` (optional): Output file path (auto-generated if not specified)
+- `--download-archive` (optional): Download and analyze migration archive automatically
+- `--archive-path` (optional): Path to an existing extracted migration archive directory
+
+**Note**: `--download-archive` and `--archive-path` are mutually exclusive. For detailed migration archive usage, see [Migration Archive Documentation](docs/migration-archive.md).
 
 ### Export Output Formats
 
@@ -118,9 +130,9 @@ gh migration-validator export \
 
 ```json
 {
-  "export_timestamp": "2025-10-02T14:49:08Z",
+  "export_timestamp": "2025-10-13T14:49:08Z",
   "repository_data": {
-    "owner": "mona-actions",
+    "owner": "source-org",
     "name": "my-repo",
     "issues": 42,
     "pull_requests": {
@@ -135,9 +147,17 @@ gh migration-validator export \
     "latest_commit_sha": "abc123def456",
     "branch_protection_rules": 4,
     "webhooks": 2
+  },
+  "migration_archive": {
+    "issues": 42,
+    "pull_requests": 30,
+    "protected_branches" : 1,
+    "releases": 3
   }
 }
 ```
+
+When migration archive data is included, the export will contain additional `migration_archive` metrics. See [Migration Archive Documentation](docs/migration-archive.md) for details.
 
 **CSV Format:**
 
@@ -163,6 +183,18 @@ gh migration-validator validate-from-export \
   --target-organization "target-org" \
   --target-repo "my-repo" \
   --target-token "ghp_yyy"
+```
+
+### Using Existing Archive Directory
+
+If you already have an extracted migration archive directory:
+
+```bash
+gh migration-validator export \
+  --source-organization "source-org" \
+  --source-repo "my-repo" \
+  --source-token "ghp_xxx" \
+  --archive-path "path/to/extracted/migration-archive"
 ```
 
 ### Validate-from-Export Options
@@ -209,6 +241,12 @@ gh migration-validator validate-from-export --export-file "path/to/export.json"
    ```
 
 This ensures you're validating against the exact state of the source repository when the migration occurred, regardless of any subsequent changes.
+
+## Migration Archive Support
+
+The tool supports working with GitHub migration archives for enhanced validation capabilities. Migration archives provide three-way validation comparing Source API ↔ Archive ↔ Target API data.
+
+For comprehensive documentation on migration archive features, workflow, and usage examples, see [Migration Archive Documentation](docs/migration-archive.md).
 
 ## What Gets Validated
 
