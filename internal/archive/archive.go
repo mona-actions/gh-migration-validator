@@ -44,12 +44,21 @@ func ExtractTarGz(srcPath, destPath string) error {
 			return fmt.Errorf("failed to read tar header: %v", err)
 		}
 
+		// Skip problematic paths
+		if header.Name == "" || header.Name == "." || header.Name == "./" {
+			continue
+		}
+
 		// Construct the full path for the file
 		fullPath := filepath.Join(destPath, header.Name)
 
 		// Security check: ensure the file path is within the destination directory
-		if !strings.HasPrefix(fullPath, filepath.Clean(destPath)+string(os.PathSeparator)) {
-			return fmt.Errorf("invalid file path: %s", header.Name)
+		cleanDestPath := filepath.Clean(destPath)
+		cleanFullPath := filepath.Clean(fullPath)
+
+		// Check if the clean full path is within the destination directory
+		if !strings.HasPrefix(cleanFullPath, cleanDestPath+string(os.PathSeparator)) && cleanFullPath != cleanDestPath {
+			return fmt.Errorf("invalid file path: %s (resolved to %s, outside %s)", header.Name, cleanFullPath, cleanDestPath)
 		}
 
 		// Handle different file types

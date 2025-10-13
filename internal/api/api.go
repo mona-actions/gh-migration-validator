@@ -577,6 +577,11 @@ func (api *GitHubAPI) FindMigrationsByRepository(clientType ClientType, org, rep
 	var matchingMigrations []*MigrationInfo
 
 	for _, migration := range migrations {
+		// Only consider migrations that are in "exported" state
+		if migration.GetState() != "exported" {
+			continue // Skip this entire migration - not in exported state
+		}
+
 		// Check if this migration contains the target repository
 		for _, repo := range migration.Repositories {
 			if repo.GetName() == repoName {
@@ -610,27 +615,23 @@ func (api *GitHubAPI) DownloadMigrationArchive(clientType ClientType, org string
 		return "", err
 	}
 
-	// Get the download URL for the migration archive
-	url, err := client.Migrations.MigrationArchiveURL(ctx, org, migrationID)
+	// Step 1: Get the signed S3 URL from GitHub API
+	signedURL, err := client.Migrations.MigrationArchiveURL(ctx, org, migrationID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get %s migration archive URL: %v", clientName, err)
 	}
 
-	// Create HTTP client for downloading
-	httpClient, err := createAuthenticatedClient(getClientConfigForType(clientType))
+	// Step 2: Use a plain HTTP client to download from the signed S3 URL
+	// Note: We don't need authentication for the signed URL - it's already authorized
+	httpClient := &http.Client{}
+	downloadResp, err := httpClient.Get(signedURL)
 	if err != nil {
-		return "", fmt.Errorf("failed to create download client: %v", err)
-	}
-
-	// Download the file
-	downloadResp, err := httpClient.Get(url)
-	if err != nil {
-		return "", fmt.Errorf("failed to download migration archive: %v", err)
+		return "", fmt.Errorf("failed to download from signed URL: %v", err)
 	}
 	defer downloadResp.Body.Close()
 
 	if downloadResp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("failed to download migration archive: status %d", downloadResp.StatusCode)
+		return "", fmt.Errorf("failed to download migration archive from S3: status %d", downloadResp.StatusCode)
 	}
 
 	// Create the output file
