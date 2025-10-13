@@ -9,6 +9,7 @@ import (
 	"mona-actions/gh-migration-validator/internal/migrationarchive"
 	"mona-actions/gh-migration-validator/internal/validator"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -31,9 +32,12 @@ This command fetches and exports repository metadata including:
 
 The data can be exported in JSON or CSV format with a timestamp.
 
-Optionally, you can download and extract migration archives using the --download-archive flag.
+Optionally, you can include migration archive data in the export by either:
+- Using --download-archive to automatically download and extract a migration archive
+- Using --archive-path to specify an existing extracted migration archive directory
+
 The tool will automatically search for migrations containing the specified repository
-and allow you to select from multiple matches if available.`,
+and allow you to select from multiple matches if available when downloading.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Get parameters from flags
 		sourceOrganization := cmd.Flag("source-organization").Value.String()
@@ -43,6 +47,7 @@ and allow you to select from multiple matches if available.`,
 		outputFormat := cmd.Flag("format").Value.String()
 		outputFile := cmd.Flag("output").Value.String()
 		downloadArchive, _ := cmd.Flags().GetBool("download-archive")
+		archivePath := cmd.Flag("archive-path").Value.String()
 
 		// Only set ENV variables if flag values are provided (not empty)
 		if sourceOrganization != "" {
@@ -73,27 +78,43 @@ and allow you to select from multiple matches if available.`,
 			os.Exit(1)
 		}
 
-		initializeAPI()
-
-		// Create validator and export source data
-		migrationValidator := validator.New(ghAPI)
-
-		// Export the source repository data
-		timestamp := time.Now()
-		err := export.ExportSourceData(migrationValidator, sourceOrganization, sourceRepo, outputFormat, outputFile, timestamp)
-		if err != nil {
-			fmt.Printf("Export failed: %v\n", err)
+		// Validate that download-archive and archive-path are mutually exclusive
+		if downloadArchive && archivePath != "" {
+			fmt.Printf("Error: --download-archive and --archive-path flags are mutually exclusive. Please use only one.\n")
 			os.Exit(1)
 		}
 
-		// Handle migration archive download if requested
+		initializeAPI()
+
+		// Create validator
+		migrationValidator := validator.New(ghAPI)
+
+		// Handle migration archive (either download or use existing path)
+		var archiveDir string
 		if downloadArchive {
 			fmt.Println("Searching for migration archives...")
-			err := migrationarchive.DownloadAndExtractArchive(ghAPI, sourceOrganization, sourceRepo)
+			extractedPath, err := migrationarchive.DownloadAndExtractArchive(ghAPI, sourceOrganization, sourceRepo)
 			if err != nil {
 				fmt.Printf("Migration archive download failed: %v\n", err)
 				os.Exit(1)
 			}
+			archiveDir = extractedPath
+		} else if archivePath != "" {
+			// Validate that the specified archive path exists and is a directory
+			if err := validateArchivePath(archivePath); err != nil {
+				fmt.Printf("Archive path validation failed: %v\n", err)
+				os.Exit(1)
+			}
+			archiveDir = archivePath
+			fmt.Printf("Using existing migration archive at: %s\n", archivePath)
+		}
+
+		// Export the source repository data (with optional migration archive analysis)
+		timestamp := time.Now()
+		err := export.ExportSourceData(migrationValidator, sourceOrganization, sourceRepo, outputFormat, outputFile, timestamp, archiveDir)
+		if err != nil {
+			fmt.Printf("Export failed: %v\n", err)
+			os.Exit(1)
 		}
 	},
 }
@@ -118,6 +139,8 @@ func init() {
 	exportCmd.Flags().StringP("output", "o", "", "Output file path (if not provided, will use default naming)")
 
 	exportCmd.Flags().BoolP("download-archive", "d", false, "Download and extract migration archive for the specified repository")
+
+	exportCmd.Flags().StringP("archive-path", "p", "", "Path to an existing extracted migration archive directory (alternative to --download-archive)")
 }
 
 // checkExportVars validates the configuration for export command
@@ -132,6 +155,57 @@ func checkExportVars() error {
 	sourceRepo := viper.GetString("SOURCE_REPO")
 	if sourceRepo == "" {
 		return fmt.Errorf("source repository is required. Set it via --source-repo flag")
+	}
+
+	return nil
+}
+
+// validateArchivePath validates that the provided archive path exists and contains expected migration archive files
+func validateArchivePath(archivePath string) error {
+	// Check if the path exists
+	info, err := os.Stat(archivePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("archive path does not exist: %s", archivePath)
+		}
+		return fmt.Errorf("error accessing archive path: %v", err)
+	}
+
+	// Check if it's a directory
+	if !info.IsDir() {
+		return fmt.Errorf("archive path must be a directory: %s", archivePath)
+	}
+
+	// Check if directory contains expected migration archive files
+	entries, err := os.ReadDir(archivePath)
+	if err != nil {
+		return fmt.Errorf("error reading archive directory: %v", err)
+	}
+
+	// Look for at least one expected migration archive file pattern
+	expectedPatterns := []string{"issues_", "pull_requests_", "protected_branches_", "releases_", "repositories_"}
+	foundExpectedFile := false
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		fileName := entry.Name()
+		if strings.HasSuffix(fileName, ".json") {
+			for _, pattern := range expectedPatterns {
+				if strings.HasPrefix(fileName, pattern) {
+					foundExpectedFile = true
+					break
+				}
+			}
+			if foundExpectedFile {
+				break
+			}
+		}
+	}
+
+	if !foundExpectedFile {
+		return fmt.Errorf("directory does not appear to contain migration archive files (expected files like issues_*.json, pull_requests_*.json, etc.): %s", archivePath)
 	}
 
 	return nil
