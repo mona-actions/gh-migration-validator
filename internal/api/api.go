@@ -582,24 +582,30 @@ func (api *GitHubAPI) FindMigrationsByRepository(clientType ClientType, org, rep
 			continue // Skip this entire migration - not in exported state
 		}
 
-		// Check if this migration contains the target repository
+		// Pre-allocate repository names slice and check for target repo in single pass
+		repositories := make([]string, 0, len(migration.Repositories))
+		foundTarget := false
+
 		for _, repo := range migration.Repositories {
-			if repo.GetName() == repoName {
-				migrationInfo := &MigrationInfo{
-					ID:        migration.GetID(),
-					CreatedAt: migration.GetCreatedAt(),
-					UpdatedAt: migration.GetUpdatedAt(),
-					State:     migration.GetState(),
-				}
+			currentRepoName := repo.GetName()
+			repositories = append(repositories, currentRepoName)
 
-				// Collect all repository names in this migration
-				for _, r := range migration.Repositories {
-					migrationInfo.Repositories = append(migrationInfo.Repositories, r.GetName())
-				}
-
-				matchingMigrations = append(matchingMigrations, migrationInfo)
-				break // Found the repo in this migration, move to next migration
+			if repoName == currentRepoName {
+				foundTarget = true
 			}
+		}
+
+		// Only create MigrationInfo if target repository was found
+		if foundTarget {
+			migrationInfo := &MigrationInfo{
+				ID:           migration.GetID(),
+				CreatedAt:    migration.GetCreatedAt(),
+				UpdatedAt:    migration.GetUpdatedAt(),
+				State:        migration.GetState(),
+				Repositories: repositories, // Assign pre-built slice
+			}
+
+			matchingMigrations = append(matchingMigrations, migrationInfo)
 		}
 	}
 

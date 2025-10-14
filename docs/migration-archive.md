@@ -30,7 +30,20 @@ gh migration-validator export \
   --source-organization "source-org" \
   --source-repo "my-repo" \
   --source-token "ghp_xxx" \
-  --download-archive
+  --download
+```
+
+### Custom Download Location
+
+Specify where to download migration archives:
+
+```bash
+gh migration-validator export \
+  --source-organization "source-org" \
+  --source-repo "my-repo" \
+  --source-token "ghp_xxx" \
+  --download \
+  --download-path "/path/to/custom/directory"
 ```
 
 ### Using Existing Archive Directory
@@ -47,10 +60,11 @@ gh migration-validator export \
 
 ### Options
 
-- `--download-archive` (optional): Download and analyze migration archive automatically
+- `--download` (optional): Download and analyze migration archive automatically
+- `--download-path` (optional): Directory to download migration archives to (default: ./migration-archives)  
 - `--archive-path` (optional): Path to an existing extracted migration archive directory
 
-**Note**: `--download-archive` and `--archive-path` are mutually exclusive. When using `--download-archive`, you must also provide `--source-organization`.
+**Note**: `--download` and `--archive-path` are mutually exclusive. When using `--download`, you must also provide `--source-organization`. You can optionally specify `--download-path` to choose where archives are saved.
 
 ## Migration Archive Workflow
 
@@ -181,15 +195,26 @@ Archive vs Target Validation:
 Downloaded migration archives are stored with descriptive names:
 
 - Format: `migration-{repo-name}-{migration-id}.tar.gz`
-- Location: Current working directory (configurable)
+- Default Location: `./migration-archives/` directory
+- Custom Location: Configurable via `--download-path` flag
 - Extraction: Automatically extracted to temporary directories for analysis
 
 ### Examples
 
+**Default location (./migration-archives/):**
+
 ```text
-migration-my-repo-abc123def456.tar.gz
-migration-webapp-789xyz123456.tar.gz
-migration-api-service-456def789abc.tar.gz
+./migration-archives/migration-my-repo-abc123def456.tar.gz
+./migration-archives/migration-webapp-789xyz123456.tar.gz
+./migration-archives/migration-api-service-456def789abc.tar.gz
+```
+
+**Custom location (--download-path /custom/path):**
+
+```text
+/custom/path/migration-my-repo-abc123def456.tar.gz
+/custom/path/migration-webapp-789xyz123456.tar.gz
+/custom/path/migration-api-service-456def789abc.tar.gz
 ```
 
 ## Archive Data Analysis

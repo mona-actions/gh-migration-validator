@@ -119,10 +119,11 @@ The tool can also download and analyze migration archives to include additional 
 - `--source-hostname` (optional): GitHub Enterprise Server URL
 - `--format` (optional): Export format - `json` or `csv` (default: `json`)
 - `--output` (optional): Output file path (auto-generated if not specified)
-- `--download-archive` (optional): Download and analyze migration archive automatically
+- `--download` (optional): Download and analyze migration archive automatically
+- `--download-path` (optional): Directory to download migration archives to (default: ./migration-archives)
 - `--archive-path` (optional): Path to an existing extracted migration archive directory
 
-**Note**: `--download-archive` and `--archive-path` are mutually exclusive. For detailed migration archive usage, see [Migration Archive Documentation](docs/migration-archive.md).
+**Note**: `--download` and `--archive-path` are mutually exclusive. For detailed migration archive usage, see [Migration Archive Documentation](docs/migration-archive.md).
 
 ### Export Output Formats
 
@@ -272,6 +273,52 @@ The tool compares the following metrics between source and target repositories:
 ### Console Output
 
 The tool provides a formatted table with colored status indicators and a summary.
+
+Example:
+
+```markdown
+# 🔄 Source vs Target Validation
+
+Metric                                 | Status  | Source Value                             | Target Value                             | Difference   
+Issues (expected +1 for migration log) | ⚠️ WARN  | 2 (expected target: 3)                   | 7                                        | Extra: 4     
+Pull Requests (Total)                  | ✅ PASS | 29                                       | 29                                       | Perfect match
+Pull Requests (Open)                   | ✅ PASS | 0                                        | 0                                        | Perfect match
+Pull Requests (Merged)                 | ✅ PASS | 27                                       | 27                                       | Perfect match
+Tags                                   | ✅ PASS | 25                                       | 25                                       | Perfect match
+Releases                               | ✅ PASS | 25                                       | 25                                       | Perfect match
+Commits                                | ✅ PASS | 64                                       | 64                                       | Perfect match
+Branch Protection Rules                | ✅ PASS | 1                                        | 1                                        | Perfect match
+Webhooks                               | ✅ PASS | 0                                        | 0                                        | Perfect match
+Latest Commit SHA                      | ✅ PASS | d11552345ad4ffea894b59d9a4145a5119d77dba | d11552345ad4ffea894b59d9a4145a5119d77dba | N/A          
+
+
+
+# 📦 Migration Archive vs Source Validation
+
+Metric                               | Status  | Source API Value | Archive Value | Difference   
+Archive vs Source Issues             | ❌ FAIL | 2                | 6             | Missing: 4   
+Archive vs Source Pull Requests      | ✅ PASS | 29               | 29            | Perfect match
+Archive vs Source Protected Branches | ✅ PASS | 1                | 1             | Perfect match
+Archive vs Source Releases           | ✅ PASS | 25               | 25            | Perfect match
+
+
+
+# 🎯 Migration Archive vs Target Validation
+
+Metric                                                   | Status  | Archive Value          | Target Value | Difference   
+Archive vs Target Issues (expected +1 for migration log) | ✅ PASS | 6 (expected target: 7) | 7            | Perfect match
+Archive vs Target Pull Requests                          | ✅ PASS | 29                     | 29           | Perfect match
+Archive vs Target Protected Branches                     | ✅ PASS | 1                      | 1            | Perfect match
+Archive vs Target Releases                               | ✅ PASS | 25                     | 25           | Perfect match
+
+
+📊 Passed: 16
+📊 Failed: 1
+📊 Warnings: 1
+
+
+ERROR   ❌ Migration validation FAILED - Some data is missing in target
+```
 
 ### Markdown Output
 

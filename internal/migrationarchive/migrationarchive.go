@@ -77,15 +77,19 @@ func SelectMigrationForRepository(githubAPI *api.GitHubAPI, org, repoName string
 
 // DownloadAndExtractArchive downloads and extracts a migration archive for the specified repository
 // Returns the path to the extracted archive directory
-func DownloadAndExtractArchive(githubAPI *api.GitHubAPI, org, repoName string) (string, error) {
+func DownloadAndExtractArchive(githubAPI *api.GitHubAPI, org, repoName, downloadPath string) (string, error) {
 	// Select the appropriate migration ID for this repository
 	migrationID, err := SelectMigrationForRepository(githubAPI, org, repoName)
 	if err != nil {
 		return "", err
 	}
 
-	// Generate output file path
+	// Use provided download path or default
 	outputDir := "migration-archives"
+	if downloadPath != "" {
+		outputDir = downloadPath
+	}
+
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return "", fmt.Errorf("failed to create output directory: %v", err)
 	}

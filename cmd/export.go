@@ -33,8 +33,11 @@ This command fetches and exports repository metadata including:
 The data can be exported in JSON or CSV format with a timestamp.
 
 Optionally, you can include migration archive data in the export by either:
-- Using --download-archive to automatically download and extract a migration archive
+- Using --download to automatically download and extract a migration archive
 - Using --archive-path to specify an existing extracted migration archive directory
+
+When using --download, you can optionally specify --download-path to choose where 
+the archive files are saved (defaults to ./migration-archives).
 
 The tool will automatically search for migrations containing the specified repository
 and allow you to select from multiple matches if available when downloading.`,
@@ -46,7 +49,8 @@ and allow you to select from multiple matches if available when downloading.`,
 		sourceRepo := cmd.Flag("source-repo").Value.String()
 		outputFormat := cmd.Flag("format").Value.String()
 		outputFile := cmd.Flag("output").Value.String()
-		downloadArchive, _ := cmd.Flags().GetBool("download-archive")
+		download, _ := cmd.Flags().GetBool("download")
+		downloadPath := cmd.Flag("download-path").Value.String()
 		archivePath := cmd.Flag("archive-path").Value.String()
 
 		// Only set ENV variables if flag values are provided (not empty)
@@ -78,9 +82,9 @@ and allow you to select from multiple matches if available when downloading.`,
 			os.Exit(1)
 		}
 
-		// Validate that download-archive and archive-path are mutually exclusive
-		if downloadArchive && archivePath != "" {
-			fmt.Printf("Error: --download-archive and --archive-path flags are mutually exclusive. Please use only one.\n")
+		// Validate that --download and --archive-path are mutually exclusive
+		if download && archivePath != "" {
+			fmt.Printf("Error: --download and --archive-path flags are mutually exclusive. Please use only one.\n")
 			os.Exit(1)
 		}
 
@@ -91,9 +95,9 @@ and allow you to select from multiple matches if available when downloading.`,
 
 		// Handle migration archive (either download or use existing path)
 		var archiveDir string
-		if downloadArchive {
+		if download {
 			fmt.Println("Searching for migration archives...")
-			extractedPath, err := migrationarchive.DownloadAndExtractArchive(ghAPI, sourceOrganization, sourceRepo)
+			extractedPath, err := migrationarchive.DownloadAndExtractArchive(ghAPI, sourceOrganization, sourceRepo, downloadPath)
 			if err != nil {
 				fmt.Printf("Migration archive download failed: %v\n", err)
 				os.Exit(1)
@@ -138,9 +142,11 @@ func init() {
 
 	exportCmd.Flags().StringP("output", "o", "", "Output file path (if not provided, will use default naming)")
 
-	exportCmd.Flags().BoolP("download-archive", "d", false, "Download and extract migration archive for the specified repository")
+	exportCmd.Flags().BoolP("download", "d", false, "Download and extract migration archive for the specified repository")
 
-	exportCmd.Flags().StringP("archive-path", "p", "", "Path to an existing extracted migration archive directory (alternative to --download-archive)")
+	exportCmd.Flags().StringP("download-path", "", "", "Directory to download migration archives to (default: ./migration-archives)")
+
+	exportCmd.Flags().StringP("archive-path", "p", "", "Path to an existing extracted migration archive directory (alternative to --download)")
 }
 
 // checkExportVars validates the configuration for export command
@@ -183,23 +189,28 @@ func validateArchivePath(archivePath string) error {
 	}
 
 	// Look for at least one expected migration archive file pattern
-	expectedPatterns := []string{"issues_", "pull_requests_", "protected_branches_", "releases_", "repositories_"}
+	// Using a map for O(1) pattern lookups instead of nested O(n*m) loops
+	expectedPatterns := map[string]bool{
+		"issues_":             true,
+		"pull_requests_":      true,
+		"protected_branches_": true,
+		"releases_":           true,
+		"repositories_":       true,
+	}
 	foundExpectedFile := false
 
 	for _, entry := range entries {
-		if entry.IsDir() {
+		if entry.IsDir() || foundExpectedFile {
 			continue
 		}
 		fileName := entry.Name()
 		if strings.HasSuffix(fileName, ".json") {
-			for _, pattern := range expectedPatterns {
-				if strings.HasPrefix(fileName, pattern) {
+			// Find the underscore position to extract the potential prefix
+			if underscoreIdx := strings.Index(fileName, "_"); underscoreIdx > 0 {
+				prefix := fileName[:underscoreIdx+1] // Include the underscore
+				if expectedPatterns[prefix] {
 					foundExpectedFile = true
-					break
 				}
-			}
-			if foundExpectedFile {
-				break
 			}
 		}
 	}
