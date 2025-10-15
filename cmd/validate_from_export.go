@@ -87,7 +87,10 @@ The validation compares the same metrics as the standard validate command:
 		migrationValidator := validator.New(ghAPI)
 
 		// Set source data from export instead of fetching from API
-		migrationValidator.SetSourceDataFromExport(&exportData.Repository)
+		// Copy migration archive data to repository data if it exists
+		repositoryData := exportData.Repository
+		repositoryData.MigrationArchive = exportData.MigrationArchive
+		migrationValidator.SetSourceDataFromExport(&repositoryData)
 
 		// Perform validation against target (now returns results directly)
 		results, err := migrationValidator.ValidateFromExport(targetOrganization, targetRepo)

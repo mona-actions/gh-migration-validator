@@ -4,6 +4,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"mona-actions/gh-migration-validator/internal/api"
+	"mona-actions/gh-migration-validator/internal/migrationarchive"
 	"mona-actions/gh-migration-validator/internal/validator"
 	"os"
 	"path/filepath"
@@ -24,6 +25,31 @@ func createTestExportData() ExportData {
 			Releases:        3,
 			CommitCount:     150,
 			LatestCommitSHA: "abc123def456",
+		},
+	}
+}
+
+// createTestExportDataWithMigrationArchive creates sample export data with migration archive for testing
+func createTestExportDataWithMigrationArchive() ExportData {
+	return ExportData{
+		ExportTimestamp: time.Date(2025, 10, 13, 12, 0, 0, 0, time.UTC),
+		Repository: validator.RepositoryData{
+			Owner:                 "test-owner",
+			Name:                  "test-repo",
+			Issues:                5,
+			PRs:                   &api.PRCounts{Open: 1, Closed: 2, Merged: 3, Total: 6},
+			Tags:                  10,
+			Releases:              8,
+			CommitCount:           100,
+			LatestCommitSHA:       "sha123",
+			BranchProtectionRules: 1,
+			Webhooks:              0,
+		},
+		MigrationArchive: &migrationarchive.MigrationArchiveMetrics{
+			Issues:            6,
+			PullRequests:      29,
+			ProtectedBranches: 1,
+			Releases:          25,
 		},
 	}
 }
