@@ -37,3 +37,4 @@ scratch
 # binary
 gh-migration-validator
 .exports/
+migration-archives/

@@ -4,6 +4,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"mona-actions/gh-migration-validator/internal/migrationarchive"
 	"mona-actions/gh-migration-validator/internal/validator"
 	"os"
 	"path/filepath"
@@ -15,13 +16,15 @@ import (
 
 // ExportData represents the exported repository data with metadata
 type ExportData struct {
-	ExportTimestamp time.Time                `json:"export_timestamp"`
-	Repository      validator.RepositoryData `json:"repository_data"`
+	ExportTimestamp  time.Time                                 `json:"export_timestamp"`
+	Repository       validator.RepositoryData                  `json:"repository_data"`
+	MigrationArchive *migrationarchive.MigrationArchiveMetrics `json:"migration_archive,omitempty"`
 }
 
 // ExportSourceData exports source repository data at a point in time
 // Takes a validator instance to leverage existing data retrieval functionality
-func ExportSourceData(mv *validator.MigrationValidator, owner, repoName, format, outputFile string, timestamp time.Time) error {
+// If migrationArchiveDir is provided, it will analyze and include migration archive metrics
+func ExportSourceData(mv *validator.MigrationValidator, owner, repoName, format, outputFile string, timestamp time.Time, migrationArchiveDir string) error {
 	fmt.Println("Starting source repository data export...")
 	fmt.Printf("Repository: %s/%s\n", owner, repoName)
 
@@ -38,6 +41,21 @@ func ExportSourceData(mv *validator.MigrationValidator, owner, repoName, format,
 	exportData := ExportData{
 		ExportTimestamp: timestamp,
 		Repository:      *mv.SourceData,
+	}
+
+	// Analyze migration archive if provided
+	if migrationArchiveDir != "" {
+		archiveSpinner, _ := pterm.DefaultSpinner.Start("Analyzing migration archive metrics...")
+
+		archiveMetrics, err := migrationarchive.AnalyzeMigrationArchive(migrationArchiveDir)
+		if err != nil {
+			archiveSpinner.Fail("Failed to analyze migration archive")
+			return fmt.Errorf("failed to analyze migration archive: %w", err)
+		}
+
+		exportData.MigrationArchive = archiveMetrics
+		archiveSpinner.Success(fmt.Sprintf("Migration archive analyzed - Issues: %d, PRs: %d, Protected Branches: %d, Releases: %d",
+			archiveMetrics.Issues, archiveMetrics.PullRequests, archiveMetrics.ProtectedBranches, archiveMetrics.Releases))
 	}
 
 	// Generate output filename if not provided
@@ -128,6 +146,8 @@ func exportToCSV(data ExportData, filename string) error {
 		"releases_count",
 		"commits_count",
 		"latest_commit_sha",
+		"branch_protection_rules_count",
+		"webhooks_count",
 	}
 	if err := writer.Write(header); err != nil {
 		return fmt.Errorf("failed to write CSV header: %w", err)
@@ -155,6 +175,8 @@ func exportToCSV(data ExportData, filename string) error {
 		fmt.Sprintf("%d", data.Repository.Releases),
 		fmt.Sprintf("%d", data.Repository.CommitCount),
 		data.Repository.LatestCommitSHA,
+		fmt.Sprintf("%d", data.Repository.BranchProtectionRules),
+		fmt.Sprintf("%d", data.Repository.Webhooks),
 	}
 	if err := writer.Write(record); err != nil {
 		return fmt.Errorf("failed to write CSV record: %w", err)

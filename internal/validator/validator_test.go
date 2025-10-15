@@ -22,6 +22,8 @@ var expectedValidationMetrics = []string{
 	"Tags",
 	"Releases",
 	"Commits",
+	"Branch Protection Rules",
+	"Webhooks",
 	"Latest Commit SHA",
 }
 
@@ -67,25 +69,29 @@ func validateMetricNames(t *testing.T, results []ValidationResult) {
 
 func TestValidateRepositoryData_PerfectMatch(t *testing.T) {
 	sourceData := &RepositoryData{
-		Owner:           "source-org",
-		Name:            "test-repo",
-		Issues:          10,
-		PRs:             &api.PRCounts{Total: 5, Open: 2, Merged: 2, Closed: 1},
-		Tags:            3,
-		Releases:        2,
-		CommitCount:     100,
-		LatestCommitSHA: "abc123",
+		Owner:                 "source-org",
+		Name:                  "test-repo",
+		Issues:                10,
+		PRs:                   &api.PRCounts{Total: 5, Open: 2, Merged: 2, Closed: 1},
+		Tags:                  3,
+		Releases:              2,
+		CommitCount:           100,
+		LatestCommitSHA:       "abc123",
+		BranchProtectionRules: 4,
+		Webhooks:              2,
 	}
 
 	targetData := &RepositoryData{
-		Owner:           "target-org",
-		Name:            "test-repo",
-		Issues:          11, // Expected: source + 1 for migration log
-		PRs:             &api.PRCounts{Total: 5, Open: 2, Merged: 2, Closed: 1},
-		Tags:            3,
-		Releases:        2,
-		CommitCount:     100,
-		LatestCommitSHA: "abc123",
+		Owner:                 "target-org",
+		Name:                  "test-repo",
+		Issues:                11, // Expected: source + 1 for migration log
+		PRs:                   &api.PRCounts{Total: 5, Open: 2, Merged: 2, Closed: 1},
+		Tags:                  3,
+		Releases:              2,
+		CommitCount:           100,
+		LatestCommitSHA:       "abc123",
+		BranchProtectionRules: 4,
+		Webhooks:              2,
 	}
 
 	validator := setupTestValidator(sourceData, targetData)
@@ -132,25 +138,29 @@ func TestValidateRepositoryData_PerfectMatch(t *testing.T) {
 
 func TestValidateRepositoryData_MissingData(t *testing.T) {
 	sourceData := &RepositoryData{
-		Owner:           "source-org",
-		Name:            "test-repo",
-		Issues:          10,
-		PRs:             &api.PRCounts{Total: 5, Open: 2, Merged: 2, Closed: 1},
-		Tags:            3,
-		Releases:        2,
-		CommitCount:     100,
-		LatestCommitSHA: "abc123",
+		Owner:                 "source-org",
+		Name:                  "test-repo",
+		Issues:                10,
+		PRs:                   &api.PRCounts{Total: 5, Open: 2, Merged: 2, Closed: 1},
+		Tags:                  3,
+		Releases:              2,
+		CommitCount:           100,
+		LatestCommitSHA:       "abc123",
+		BranchProtectionRules: 4,
+		Webhooks:              3,
 	}
 
 	targetData := &RepositoryData{
-		Owner:           "target-org",
-		Name:            "test-repo",
-		Issues:          8,                                                      // Missing 3 (should be 11, but is 8)
-		PRs:             &api.PRCounts{Total: 3, Open: 1, Merged: 1, Closed: 1}, // Missing 2 total PRs
-		Tags:            2,                                                      // Missing 1 tag
-		Releases:        1,                                                      // Missing 1 release
-		CommitCount:     90,                                                     // Missing 10 commits
-		LatestCommitSHA: "def456",                                               // Different commit SHA
+		Owner:                 "target-org",
+		Name:                  "test-repo",
+		Issues:                8,                                                      // Missing 3 (should be 11, but is 8)
+		PRs:                   &api.PRCounts{Total: 3, Open: 1, Merged: 1, Closed: 1}, // Missing 2 total PRs
+		Tags:                  2,                                                      // Missing 1 tag
+		Releases:              1,                                                      // Missing 1 release
+		CommitCount:           90,                                                     // Missing 10 commits
+		LatestCommitSHA:       "def456",                                               // Different commit SHA
+		BranchProtectionRules: 3,                                                      // Missing 1 rule
+		Webhooks:              1,                                                      // Missing 2 webhooks
 	}
 
 	validator := setupTestValidator(sourceData, targetData)
@@ -192,25 +202,29 @@ func TestValidateRepositoryData_MissingData(t *testing.T) {
 
 func TestValidateRepositoryData_ExtraData(t *testing.T) {
 	sourceData := &RepositoryData{
-		Owner:           "source-org",
-		Name:            "test-repo",
-		Issues:          10,
-		PRs:             &api.PRCounts{Total: 5, Open: 2, Merged: 2, Closed: 1},
-		Tags:            3,
-		Releases:        2,
-		CommitCount:     100,
-		LatestCommitSHA: "abc123",
+		Owner:                 "source-org",
+		Name:                  "test-repo",
+		Issues:                10,
+		PRs:                   &api.PRCounts{Total: 5, Open: 2, Merged: 2, Closed: 1},
+		Tags:                  3,
+		Releases:              2,
+		CommitCount:           100,
+		LatestCommitSHA:       "abc123",
+		BranchProtectionRules: 4,
+		Webhooks:              2,
 	}
 
 	targetData := &RepositoryData{
-		Owner:           "target-org",
-		Name:            "test-repo",
-		Issues:          13,                                                     // 2 extra (should be 11, but is 13)
-		PRs:             &api.PRCounts{Total: 7, Open: 3, Merged: 3, Closed: 1}, // 2 extra PRs
-		Tags:            5,                                                      // 2 extra tags
-		Releases:        4,                                                      // 2 extra releases
-		CommitCount:     110,                                                    // 10 extra commits
-		LatestCommitSHA: "abc123",                                               // Same commit SHA
+		Owner:                 "target-org",
+		Name:                  "test-repo",
+		Issues:                13,                                                     // 2 extra (should be 11, but is 13)
+		PRs:                   &api.PRCounts{Total: 7, Open: 3, Merged: 3, Closed: 1}, // 2 extra PRs
+		Tags:                  5,                                                      // 2 extra tags
+		Releases:              4,                                                      // 2 extra releases
+		CommitCount:           110,                                                    // 10 extra commits
+		LatestCommitSHA:       "abc123",                                               // Same commit SHA
+		BranchProtectionRules: 6,                                                      // 2 extra rules
+		Webhooks:              5,                                                      // 3 extra webhooks
 	}
 
 	validator := setupTestValidator(sourceData, targetData)
@@ -268,21 +282,24 @@ func TestPrintValidationResults(t *testing.T) {
 			Metric:     "Issues",
 			SourceVal:  10,
 			TargetVal:  11,
-			Status:     "✅ PASS",
+			Status:     ValidationStatusMessagePass,
+			StatusType: ValidationStatusPass,
 			Difference: 0,
 		},
 		{
 			Metric:     "PRs",
 			SourceVal:  5,
 			TargetVal:  3,
-			Status:     "❌ FAIL",
+			Status:     ValidationStatusMessageFail,
+			StatusType: ValidationStatusFail,
 			Difference: 2,
 		},
 		{
 			Metric:     "Tags",
 			SourceVal:  3,
 			TargetVal:  5,
-			Status:     "⚠️ WARN",
+			Status:     ValidationStatusMessageWarn,
+			StatusType: ValidationStatusWarn,
 			Difference: -2,
 		},
 	}
@@ -315,6 +332,7 @@ func TestPrintMarkdownTable(t *testing.T) {
 			SourceVal:  10,
 			TargetVal:  11,
 			Status:     "✅ PASS",
+			StatusType: ValidationStatusPass,
 			Difference: 0,
 		},
 		{
@@ -322,6 +340,7 @@ func TestPrintMarkdownTable(t *testing.T) {
 			SourceVal:  5,
 			TargetVal:  3,
 			Status:     "❌ FAIL",
+			StatusType: ValidationStatusFail,
 			Difference: 2,
 		},
 		{
@@ -329,6 +348,7 @@ func TestPrintMarkdownTable(t *testing.T) {
 			SourceVal:  3,
 			TargetVal:  5,
 			Status:     "⚠️ WARN",
+			StatusType: ValidationStatusWarn,
 			Difference: -2,
 		},
 		{
@@ -336,6 +356,7 @@ func TestPrintMarkdownTable(t *testing.T) {
 			SourceVal:  "abc123",
 			TargetVal:  "def456",
 			Status:     "❌ FAIL",
+			StatusType: ValidationStatusFail,
 			Difference: 0,
 		},
 	}
@@ -527,8 +548,8 @@ func TestMarkdownTable_DifferentScenarios(t *testing.T) {
 		{
 			name: "All passing",
 			results: []ValidationResult{
-				{Metric: "Issues", SourceVal: 10, TargetVal: 11, Status: "✅ PASS", Difference: 0},
-				{Metric: "PRs", SourceVal: 5, TargetVal: 5, Status: "✅ PASS", Difference: 0},
+				{Metric: "Issues", SourceVal: 10, TargetVal: 11, Status: "✅ PASS", StatusType: ValidationStatusPass, Difference: 0},
+				{Metric: "PRs", SourceVal: 5, TargetVal: 5, Status: "✅ PASS", StatusType: ValidationStatusPass, Difference: 0},
 			},
 			expected: []string{
 				"- **Passed:** 2",
@@ -540,8 +561,8 @@ func TestMarkdownTable_DifferentScenarios(t *testing.T) {
 		{
 			name: "Mixed results",
 			results: []ValidationResult{
-				{Metric: "Issues", SourceVal: 10, TargetVal: 9, Status: "❌ FAIL", Difference: 2},
-				{Metric: "PRs", SourceVal: 5, TargetVal: 6, Status: "⚠️ WARN", Difference: -1},
+				{Metric: "Issues", SourceVal: 10, TargetVal: 9, Status: "❌ FAIL", StatusType: ValidationStatusFail, Difference: 2},
+				{Metric: "PRs", SourceVal: 5, TargetVal: 6, Status: "⚠️ WARN", StatusType: ValidationStatusWarn, Difference: -1},
 			},
 			expected: []string{
 				"- **Passed:** 0",
@@ -553,8 +574,8 @@ func TestMarkdownTable_DifferentScenarios(t *testing.T) {
 		{
 			name: "Only warnings",
 			results: []ValidationResult{
-				{Metric: "Issues", SourceVal: 10, TargetVal: 12, Status: "⚠️ WARN", Difference: -1},
-				{Metric: "PRs", SourceVal: 5, TargetVal: 6, Status: "⚠️ WARN", Difference: -1},
+				{Metric: "Issues", SourceVal: 10, TargetVal: 12, Status: "⚠️ WARN", StatusType: ValidationStatusWarn, Difference: -1},
+				{Metric: "PRs", SourceVal: 5, TargetVal: 6, Status: "⚠️ WARN", StatusType: ValidationStatusWarn, Difference: -1},
 			},
 			expected: []string{
 				"- **Passed:** 0",
@@ -664,8 +685,8 @@ func TestValidateFromExport_NoSourceData(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.Nil(t, results)
-	assert.Contains(t, err.Error(), "source data not loaded")
-	assert.Contains(t, err.Error(), "call SetSourceDataFromExport first")
+	assert.Contains(t, err.Error(), "source data not properly loaded")
+	assert.Contains(t, err.Error(), "call SetSourceDataFromExport with valid data first")
 }
 
 func TestValidateFromExport_CompleteWorkflow(t *testing.T) {
@@ -737,8 +758,8 @@ func TestValidateFromExport_SourceDataValidation(t *testing.T) {
 		// Should fail immediately with source data error, before any API calls
 		assert.Error(t, err)
 		assert.Nil(t, results)
-		assert.Contains(t, err.Error(), "source data not loaded")
-		assert.Contains(t, err.Error(), "call SetSourceDataFromExport first")
+		assert.Contains(t, err.Error(), "source data not properly loaded")
+		assert.Contains(t, err.Error(), "call SetSourceDataFromExport with valid data first")
 	})
 
 	t.Run("Valid source data structure", func(t *testing.T) {

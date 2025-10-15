@@ -3,6 +3,8 @@ package validator
 import (
 	"fmt"
 	"mona-actions/gh-migration-validator/internal/api"
+	"mona-actions/gh-migration-validator/internal/migrationarchive"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,10 +16,19 @@ import (
 type ValidationStatus int
 
 const (
+	ValidationStatusMessagePass = "✅ PASS"
+	ValidationStatusMessageFail = "❌ FAIL"
+	ValidationStatusMessageWarn = "⚠️ WARN"
+)
+
+const (
 	ValidationStatusPass ValidationStatus = iota
 	ValidationStatusFail
 	ValidationStatusWarn
 )
+
+// MigrationLogIssueOffset represents the additional issue created during migration
+const MigrationLogIssueOffset = 1
 
 // getValidationStatus returns both display string and enum value based on difference
 // diff > 0: target has fewer items than source (FAIL)
@@ -26,24 +37,27 @@ const (
 func getValidationStatus(diff int) (string, ValidationStatus) {
 	switch {
 	case diff > 0:
-		return "❌ FAIL", ValidationStatusFail
+		return ValidationStatusMessageFail, ValidationStatusFail
 	case diff < 0:
-		return "⚠️ WARN", ValidationStatusWarn
+		return ValidationStatusMessageWarn, ValidationStatusWarn
 	default:
-		return "✅ PASS", ValidationStatusPass
+		return ValidationStatusMessagePass, ValidationStatusPass
 	}
 }
 
 // RepositoryData holds all the metrics for a repository
 type RepositoryData struct {
-	Owner           string
-	Name            string
-	Issues          int
-	PRs             *api.PRCounts
-	Tags            int
-	Releases        int
-	CommitCount     int
-	LatestCommitSHA string
+	Owner                 string
+	Name                  string
+	Issues                int
+	PRs                   *api.PRCounts
+	Tags                  int
+	Releases              int
+	CommitCount           int
+	LatestCommitSHA       string
+	BranchProtectionRules int
+	Webhooks              int
+	MigrationArchive      *migrationarchive.MigrationArchiveMetrics `json:"migration_archive,omitempty"`
 }
 
 // ValidationResult represents the comparison between source and target
@@ -129,8 +143,11 @@ func (mv *MigrationValidator) ValidateMigration(sourceOwner, sourceRepo, targetO
 }
 
 // retrieveSource retrieves all repository data from the source repository
+// Handles individual API failures gracefully by logging errors and continuing with default values
 func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.SpinnerPrinter) error {
 	startTime := time.Now()
+	var failedRequests []string
+	var successfulRequests int
 
 	mv.SourceData.Owner = owner
 	mv.SourceData.Name = name
@@ -139,58 +156,114 @@ func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.
 	spinner.UpdateText(fmt.Sprintf("Fetching issues from %s/%s...", owner, name))
 	issues, err := mv.api.GetIssueCount(api.SourceClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch issues from %s/%s", owner, name))
-		return fmt.Errorf("failed to get source issue count: %w", err)
+		pterm.Error.Printf("Failed to fetch issues from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "issues")
+		mv.SourceData.Issues = 0
+	} else {
+		mv.SourceData.Issues = issues
+		successfulRequests++
 	}
-	mv.SourceData.Issues = issues
 
 	// Get PR counts
 	spinner.UpdateText(fmt.Sprintf("Fetching pull requests from %s/%s...", owner, name))
 	prCounts, err := mv.api.GetPRCounts(api.SourceClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch pull requests from %s/%s", owner, name))
-		return fmt.Errorf("failed to get source PR counts: %w", err)
+		pterm.Error.Printf("Failed to fetch pull requests from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "pull requests")
+		mv.SourceData.PRs = &api.PRCounts{Total: 0, Open: 0, Merged: 0, Closed: 0}
+	} else {
+		mv.SourceData.PRs = prCounts
+		successfulRequests++
 	}
-	mv.SourceData.PRs = prCounts
 
 	// Get tag count
 	spinner.UpdateText(fmt.Sprintf("Fetching tags from %s/%s...", owner, name))
 	tags, err := mv.api.GetTagCount(api.SourceClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch tags from %s/%s", owner, name))
-		return fmt.Errorf("failed to get source tag count: %w", err)
+		pterm.Error.Printf("Failed to fetch tags from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "tags")
+		mv.SourceData.Tags = 0
+	} else {
+		mv.SourceData.Tags = tags
+		successfulRequests++
 	}
-	mv.SourceData.Tags = tags
 
 	// Get release count
 	spinner.UpdateText(fmt.Sprintf("Fetching releases from %s/%s...", owner, name))
 	releases, err := mv.api.GetReleaseCount(api.SourceClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch releases from %s/%s", owner, name))
-		return fmt.Errorf("failed to get source release count: %w", err)
+		pterm.Error.Printf("Failed to fetch releases from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "releases")
+		mv.SourceData.Releases = 0
+	} else {
+		mv.SourceData.Releases = releases
+		successfulRequests++
 	}
-	mv.SourceData.Releases = releases
 
 	// Get commit count
 	spinner.UpdateText(fmt.Sprintf("Fetching commit count from %s/%s...", owner, name))
 	commitCount, err := mv.api.GetCommitCount(api.SourceClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch commit count from %s/%s", owner, name))
-		return fmt.Errorf("failed to get source commit count: %w", err)
+		pterm.Error.Printf("Failed to fetch commit count from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "commits")
+		mv.SourceData.CommitCount = 0
+	} else {
+		mv.SourceData.CommitCount = commitCount
+		successfulRequests++
 	}
-	mv.SourceData.CommitCount = commitCount
 
 	// Get latest commit hash
 	spinner.UpdateText(fmt.Sprintf("Fetching latest commit hash from %s/%s...", owner, name))
 	latestCommitSHA, err := mv.api.GetLatestCommitHash(api.SourceClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch latest commit hash from %s/%s", owner, name))
-		return fmt.Errorf("failed to get source latest commit hash: %w", err)
+		pterm.Error.Printf("Failed to fetch latest commit hash from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "latest commit hash")
+		mv.SourceData.LatestCommitSHA = ""
+	} else {
+		mv.SourceData.LatestCommitSHA = latestCommitSHA
+		successfulRequests++
 	}
-	mv.SourceData.LatestCommitSHA = latestCommitSHA
+
+	// Get branch protection rules count
+	spinner.UpdateText(fmt.Sprintf("Fetching branch protection rules from %s/%s...", owner, name))
+	branchProtectionRules, err := mv.api.GetBranchProtectionRulesCount(api.SourceClient, owner, name)
+	if err != nil {
+		pterm.Error.Printf("Failed to fetch branch protection rules from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "branch protection rules")
+		mv.SourceData.BranchProtectionRules = 0
+	} else {
+		mv.SourceData.BranchProtectionRules = branchProtectionRules
+		successfulRequests++
+	}
+
+	// Get webhook count
+	spinner.UpdateText(fmt.Sprintf("Fetching webhooks from %s/%s...", owner, name))
+	webhooks, err := mv.api.GetWebhookCount(api.SourceClient, owner, name)
+	if err != nil {
+		pterm.Error.Printf("Failed to fetch webhooks from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "webhooks")
+		mv.SourceData.Webhooks = 0
+	} else {
+		mv.SourceData.Webhooks = webhooks
+		successfulRequests++
+	}
 
 	duration := time.Since(startTime)
-	spinner.Success(fmt.Sprintf("%s/%s retrieved successfully (%v)", owner, name, duration))
+
+	// Determine success/failure status
+	if successfulRequests == 0 {
+		spinner.Fail(fmt.Sprintf("Failed to retrieve any data from %s/%s", owner, name))
+		return fmt.Errorf("all API requests failed for %s/%s", owner, name)
+	}
+
+	if len(failedRequests) > 0 {
+		spinner.Warning(fmt.Sprintf("%s/%s retrieved with %d successful and %d failed requests (%v)",
+			owner, name, successfulRequests, len(failedRequests), duration))
+		pterm.Warning.Printf("Failed to retrieve: %v\n", failedRequests)
+		pterm.Info.Println("Export will continue with available data (failed requests will have default values)")
+	} else {
+		spinner.Success(fmt.Sprintf("%s/%s retrieved successfully (%v)", owner, name, duration))
+	}
 
 	return nil
 }
@@ -202,16 +275,23 @@ func (mv *MigrationValidator) RetrieveSourceData(owner, name string, spinner *pt
 
 // SetSourceDataFromExport sets the source data from an export instead of fetching from API
 func (mv *MigrationValidator) SetSourceDataFromExport(exportData *RepositoryData) {
-	//prevent external mutation
+	// Create a deep copy to prevent external mutation
 	sourceDataCopy := *exportData
+
+	// Clone the PRCounts struct if it exists to achieve true isolation
+	if exportData.PRs != nil {
+		prCountsCopy := *exportData.PRs
+		sourceDataCopy.PRs = &prCountsCopy
+	}
+
 	mv.SourceData = &sourceDataCopy
 }
 
 // ValidateFromExport performs validation against target using pre-loaded source data from export
 func (mv *MigrationValidator) ValidateFromExport(targetOwner, targetRepo string) ([]ValidationResult, error) {
 	// Validate that source data is already loaded
-	if mv.SourceData == nil {
-		return nil, fmt.Errorf("source data not loaded - call SetSourceDataFromExport first")
+	if mv.SourceData == nil || mv.SourceData.Owner == "" || mv.SourceData.Name == "" {
+		return nil, fmt.Errorf("source data not properly loaded - call SetSourceDataFromExport with valid data first")
 	}
 
 	// Normalize source data to prevent nil pointer dereferences
@@ -229,7 +309,9 @@ func (mv *MigrationValidator) ValidateFromExport(targetOwner, targetRepo string)
 	// Retrieve target data using existing functionality
 	err := mv.retrieveTarget(targetOwner, targetRepo, spinner)
 	if err != nil {
+		spinner.Fail(fmt.Sprintf("Failed to fetch target data from %s/%s", targetOwner, targetRepo))
 		return nil, fmt.Errorf("failed to retrieve target data: %w", err)
+		//fail spinner
 	}
 
 	// Compare and validate the data (same as ValidateMigration)
@@ -241,8 +323,11 @@ func (mv *MigrationValidator) ValidateFromExport(targetOwner, targetRepo string)
 }
 
 // retrieveTarget retrieves all repository data from the target repository
+// Handles individual API failures gracefully by logging errors and continuing with default values
 func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.SpinnerPrinter) error {
 	startTime := time.Now()
+	var failedRequests []string
+	var successfulRequests int
 
 	mv.TargetData.Owner = owner
 	mv.TargetData.Name = name
@@ -251,58 +336,114 @@ func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.
 	spinner.UpdateText(fmt.Sprintf("Fetching issues from %s/%s...", owner, name))
 	issues, err := mv.api.GetIssueCount(api.TargetClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch issues from %s/%s", owner, name))
-		return fmt.Errorf("failed to get target issue count: %w", err)
+		pterm.Error.Printf("Failed to fetch issues from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "issues")
+		mv.TargetData.Issues = 0
+	} else {
+		mv.TargetData.Issues = issues
+		successfulRequests++
 	}
-	mv.TargetData.Issues = issues
 
 	// Get PR counts
 	spinner.UpdateText(fmt.Sprintf("Fetching pull requests from %s/%s...", owner, name))
 	prCounts, err := mv.api.GetPRCounts(api.TargetClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch pull requests from %s/%s", owner, name))
-		return fmt.Errorf("failed to get target PR counts: %w", err)
+		pterm.Error.Printf("Failed to fetch pull requests from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "pull requests")
+		mv.TargetData.PRs = &api.PRCounts{Total: 0, Open: 0, Merged: 0, Closed: 0}
+	} else {
+		mv.TargetData.PRs = prCounts
+		successfulRequests++
 	}
-	mv.TargetData.PRs = prCounts
 
 	// Get tag count
 	spinner.UpdateText(fmt.Sprintf("Fetching tags from %s/%s...", owner, name))
 	tags, err := mv.api.GetTagCount(api.TargetClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch tags from %s/%s", owner, name))
-		return fmt.Errorf("failed to get target tag count: %w", err)
+		pterm.Error.Printf("Failed to fetch tags from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "tags")
+		mv.TargetData.Tags = 0
+	} else {
+		mv.TargetData.Tags = tags
+		successfulRequests++
 	}
-	mv.TargetData.Tags = tags
 
 	// Get release count
 	spinner.UpdateText(fmt.Sprintf("Fetching releases from %s/%s...", owner, name))
 	releases, err := mv.api.GetReleaseCount(api.TargetClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch releases from %s/%s", owner, name))
-		return fmt.Errorf("failed to get target release count: %w", err)
+		pterm.Error.Printf("Failed to fetch releases from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "releases")
+		mv.TargetData.Releases = 0
+	} else {
+		mv.TargetData.Releases = releases
+		successfulRequests++
 	}
-	mv.TargetData.Releases = releases
 
 	// Get commit count
 	spinner.UpdateText(fmt.Sprintf("Fetching commit count from %s/%s...", owner, name))
 	commitCount, err := mv.api.GetCommitCount(api.TargetClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch commit count from %s/%s", owner, name))
-		return fmt.Errorf("failed to get target commit count: %w", err)
+		pterm.Error.Printf("Failed to fetch commit count from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "commits")
+		mv.TargetData.CommitCount = 0
+	} else {
+		mv.TargetData.CommitCount = commitCount
+		successfulRequests++
 	}
-	mv.TargetData.CommitCount = commitCount
 
 	// Get latest commit hash
 	spinner.UpdateText(fmt.Sprintf("Fetching latest commit hash from %s/%s...", owner, name))
 	latestCommitSHA, err := mv.api.GetLatestCommitHash(api.TargetClient, owner, name)
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch latest commit hash from %s/%s", owner, name))
-		return fmt.Errorf("failed to get target latest commit hash: %w", err)
+		pterm.Error.Printf("Failed to fetch latest commit hash from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "latest commit hash")
+		mv.TargetData.LatestCommitSHA = ""
+	} else {
+		mv.TargetData.LatestCommitSHA = latestCommitSHA
+		successfulRequests++
 	}
-	mv.TargetData.LatestCommitSHA = latestCommitSHA
+
+	// Get branch protection rules count
+	spinner.UpdateText(fmt.Sprintf("Fetching branch protection rules from %s/%s...", owner, name))
+	branchProtectionRules, err := mv.api.GetBranchProtectionRulesCount(api.TargetClient, owner, name)
+	if err != nil {
+		pterm.Error.Printf("Failed to fetch branch protection rules from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "branch protection rules")
+		mv.TargetData.BranchProtectionRules = 0
+	} else {
+		mv.TargetData.BranchProtectionRules = branchProtectionRules
+		successfulRequests++
+	}
+
+	// Get webhook count
+	spinner.UpdateText(fmt.Sprintf("Fetching webhooks from %s/%s...", owner, name))
+	webhooks, err := mv.api.GetWebhookCount(api.TargetClient, owner, name)
+	if err != nil {
+		pterm.Error.Printf("Failed to fetch webhooks from %s/%s: %v\n", owner, name, err)
+		failedRequests = append(failedRequests, "webhooks")
+		mv.TargetData.Webhooks = 0
+	} else {
+		mv.TargetData.Webhooks = webhooks
+		successfulRequests++
+	}
 
 	duration := time.Since(startTime)
-	spinner.Success(fmt.Sprintf("%s/%s retrieved successfully (%v)", owner, name, duration))
+
+	// Determine success/failure status
+	if successfulRequests == 0 {
+		spinner.Fail(fmt.Sprintf("Failed to retrieve any data from %s/%s", owner, name))
+		return fmt.Errorf("all API requests failed for %s/%s", owner, name)
+	}
+
+	if len(failedRequests) > 0 {
+		spinner.Warning(fmt.Sprintf("%s/%s retrieved with %d successful and %d failed requests (%v)",
+			owner, name, successfulRequests, len(failedRequests), duration))
+		pterm.Warning.Printf("Failed to retrieve: %v\n", failedRequests)
+		pterm.Info.Println("Validation will continue with available data (failed requests will have default values)")
+	} else {
+		spinner.Success(fmt.Sprintf("%s/%s retrieved successfully (%v)", owner, name, duration))
+	}
 
 	return nil
 }
@@ -313,14 +454,14 @@ func (mv *MigrationValidator) validateRepositoryData() []ValidationResult {
 
 	var results []ValidationResult
 
-	// Compare Issues (target should have source issues + 1 for migration logging issue)
-	expectedTargetIssues := mv.SourceData.Issues + 1
+	// Compare Issues (target should have source issues + migration log issue)
+	expectedTargetIssues := mv.SourceData.Issues + MigrationLogIssueOffset
 	issueDiff := expectedTargetIssues - mv.TargetData.Issues
 	issueStatus, issueStatusType := getValidationStatus(issueDiff)
 
 	results = append(results, ValidationResult{
 		Metric:     "Issues (expected +1 for migration log)",
-		SourceVal:  fmt.Sprintf("%d (expected target: %d)", mv.SourceData.Issues, expectedTargetIssues),
+		SourceVal:  mv.SourceData.Issues,
 		TargetVal:  mv.TargetData.Issues,
 		Status:     issueStatus,
 		StatusType: issueStatusType,
@@ -405,11 +546,38 @@ func (mv *MigrationValidator) validateRepositoryData() []ValidationResult {
 		Difference: commitDiff,
 	})
 
+	// Compare Branch Protection Rules
+	branchProtectionDiff := mv.SourceData.BranchProtectionRules - mv.TargetData.BranchProtectionRules
+	branchProtectionStatus, branchProtectionStatusType := getValidationStatus(branchProtectionDiff)
+
+	results = append(results, ValidationResult{
+		Metric:     "Branch Protection Rules",
+		SourceVal:  mv.SourceData.BranchProtectionRules,
+		TargetVal:  mv.TargetData.BranchProtectionRules,
+		Status:     branchProtectionStatus,
+		StatusType: branchProtectionStatusType,
+		Difference: branchProtectionDiff,
+	})
+
+	// Compare Webhooks
+	webhooksDiff := mv.SourceData.Webhooks - mv.TargetData.Webhooks
+	webhooksStatus, webhooksStatusType := getValidationStatus(webhooksDiff)
+
+	results = append(results, ValidationResult{
+		Metric:     "Webhooks",
+		SourceVal:  mv.SourceData.Webhooks,
+		TargetVal:  mv.TargetData.Webhooks,
+		Status:     webhooksStatus,
+		StatusType: webhooksStatusType,
+		Difference: webhooksDiff,
+	})
+
 	// Compare Latest Commit SHA
-	latestCommitStatus := "✅ PASS"
+	latestCommitStatus := ValidationStatusMessagePass
 	latestCommitStatusType := ValidationStatusPass
+
 	if mv.SourceData.LatestCommitSHA != mv.TargetData.LatestCommitSHA {
-		latestCommitStatus = "❌ FAIL"
+		latestCommitStatus = ValidationStatusMessageFail
 		latestCommitStatusType = ValidationStatusFail
 	}
 
@@ -421,6 +589,108 @@ func (mv *MigrationValidator) validateRepositoryData() []ValidationResult {
 		StatusType: latestCommitStatusType,
 		Difference: 0, // Not applicable for SHA comparison
 	})
+
+	// Add migration archive validation if available
+	if mv.SourceData.MigrationArchive != nil {
+		// First, compare migration archive with source API data to check migration completeness
+		archiveVsSourceIssuesDiff := mv.SourceData.MigrationArchive.Issues - mv.SourceData.Issues
+		archiveVsSourceIssuesStatus, archiveVsSourceIssuesStatusType := getValidationStatus(archiveVsSourceIssuesDiff)
+
+		results = append(results, ValidationResult{
+			Metric:     "Archive vs Source Issues",
+			SourceVal:  mv.SourceData.Issues,
+			TargetVal:  mv.SourceData.MigrationArchive.Issues,
+			Status:     archiveVsSourceIssuesStatus,
+			StatusType: archiveVsSourceIssuesStatusType,
+			Difference: archiveVsSourceIssuesDiff,
+		})
+
+		archiveVsSourcePRsDiff := mv.SourceData.MigrationArchive.PullRequests - mv.SourceData.PRs.Total
+		archiveVsSourcePRsStatus, archiveVsSourcePRsStatusType := getValidationStatus(archiveVsSourcePRsDiff)
+
+		results = append(results, ValidationResult{
+			Metric:     "Archive vs Source Pull Requests",
+			SourceVal:  mv.SourceData.PRs.Total,
+			TargetVal:  mv.SourceData.MigrationArchive.PullRequests,
+			Status:     archiveVsSourcePRsStatus,
+			StatusType: archiveVsSourcePRsStatusType,
+			Difference: archiveVsSourcePRsDiff,
+		})
+
+		archiveVsSourceBranchesDiff := mv.SourceData.MigrationArchive.ProtectedBranches - mv.SourceData.BranchProtectionRules
+		archiveVsSourceBranchesStatus, archiveVsSourceBranchesStatusType := getValidationStatus(archiveVsSourceBranchesDiff)
+
+		results = append(results, ValidationResult{
+			Metric:     "Archive vs Source Protected Branches",
+			SourceVal:  mv.SourceData.BranchProtectionRules,
+			TargetVal:  mv.SourceData.MigrationArchive.ProtectedBranches,
+			Status:     archiveVsSourceBranchesStatus,
+			StatusType: archiveVsSourceBranchesStatusType,
+			Difference: archiveVsSourceBranchesDiff,
+		})
+
+		archiveVsSourceReleasesDiff := mv.SourceData.MigrationArchive.Releases - mv.SourceData.Releases
+		archiveVsSourceReleasesStatus, archiveVsSourceReleasesStatusType := getValidationStatus(archiveVsSourceReleasesDiff)
+
+		results = append(results, ValidationResult{
+			Metric:     "Archive vs Source Releases",
+			SourceVal:  mv.SourceData.Releases,
+			TargetVal:  mv.SourceData.MigrationArchive.Releases,
+			Status:     archiveVsSourceReleasesStatus,
+			StatusType: archiveVsSourceReleasesStatusType,
+			Difference: archiveVsSourceReleasesDiff,
+		})
+
+		// Then, compare migration archive with target data to check migration success
+		expectedTargetFromArchive := mv.SourceData.MigrationArchive.Issues + MigrationLogIssueOffset
+		archiveToTargetIssuesDiff := expectedTargetFromArchive - mv.TargetData.Issues
+		archiveToTargetIssuesStatus, archiveToTargetIssuesStatusType := getValidationStatus(archiveToTargetIssuesDiff)
+
+		results = append(results, ValidationResult{
+			Metric:     "Archive vs Target Issues (expected +1 for migration log)",
+			SourceVal:  mv.SourceData.MigrationArchive.Issues,
+			TargetVal:  mv.TargetData.Issues,
+			Status:     archiveToTargetIssuesStatus,
+			StatusType: archiveToTargetIssuesStatusType,
+			Difference: archiveToTargetIssuesDiff,
+		})
+
+		archiveToTargetPRsDiff := mv.SourceData.MigrationArchive.PullRequests - mv.TargetData.PRs.Total
+		archiveToTargetPRsStatus, archiveToTargetPRsStatusType := getValidationStatus(archiveToTargetPRsDiff)
+
+		results = append(results, ValidationResult{
+			Metric:     "Archive vs Target Pull Requests",
+			SourceVal:  mv.SourceData.MigrationArchive.PullRequests,
+			TargetVal:  mv.TargetData.PRs.Total,
+			Status:     archiveToTargetPRsStatus,
+			StatusType: archiveToTargetPRsStatusType,
+			Difference: archiveToTargetPRsDiff,
+		})
+
+		archiveToTargetBranchesDiff := mv.SourceData.MigrationArchive.ProtectedBranches - mv.TargetData.BranchProtectionRules
+		archiveToTargetBranchesStatus, archiveToTargetBranchesStatusType := getValidationStatus(archiveToTargetBranchesDiff)
+
+		results = append(results, ValidationResult{
+			Metric:     "Archive vs Target Protected Branches",
+			SourceVal:  mv.SourceData.MigrationArchive.ProtectedBranches,
+			TargetVal:  mv.TargetData.BranchProtectionRules,
+			Status:     archiveToTargetBranchesStatus,
+			StatusType: archiveToTargetBranchesStatusType,
+			Difference: archiveToTargetBranchesDiff,
+		})
+
+		archiveToTargetReleasesDiff := mv.SourceData.MigrationArchive.Releases - mv.TargetData.Releases
+		archiveToTargetReleasesStatus, archiveToTargetReleasesStatusType := getValidationStatus(archiveToTargetReleasesDiff)
+
+		results = append(results, ValidationResult{
+			Metric:     "Archive vs Target Releases",
+			SourceVal:  mv.SourceData.MigrationArchive.Releases,
+			TargetVal:  mv.TargetData.Releases,
+			Status:     archiveToTargetReleasesStatus,
+			StatusType: archiveToTargetReleasesStatusType,
+			Difference: archiveToTargetReleasesDiff,
+		})
+	}
 
 	return results
 }
@@ -440,10 +710,62 @@ func (mv *MigrationValidator) PrintValidationResults(results []ValidationResult)
 
 	fmt.Println() // Add spacing
 
-	// Create table data
-	tableData := [][]string{
-		{"Metric", "Status", "Source Value", "Target Value", "Difference"},
+	// Separate results into different categories
+	var standardResults []ValidationResult
+	var archiveVsSourceResults []ValidationResult
+	var archiveVsTargetResults []ValidationResult
+
+	for _, result := range results {
+		if strings.HasPrefix(result.Metric, "Archive vs Source") {
+			archiveVsSourceResults = append(archiveVsSourceResults, result)
+		} else if strings.HasPrefix(result.Metric, "Archive vs Target") {
+			archiveVsTargetResults = append(archiveVsTargetResults, result)
+		} else {
+			standardResults = append(standardResults, result)
+		}
 	}
+
+	// Display standard validation table
+	mv.displayValidationTable("🔄 Source vs Target Validation", standardResults)
+
+	// Display migration archive validation tables if available
+	if len(archiveVsSourceResults) > 0 {
+		fmt.Println()
+		mv.displayValidationTable("📦 Migration Archive vs Source Validation", archiveVsSourceResults)
+	}
+
+	if len(archiveVsTargetResults) > 0 {
+		fmt.Println()
+		mv.displayValidationTable("🎯 Migration Archive vs Target Validation", archiveVsTargetResults)
+	}
+
+	fmt.Println() // Add spacing
+
+	// Calculate and display summary for all results
+	mv.displayValidationSummary(results)
+}
+
+// displayValidationTable displays a validation table with the given title and results
+func (mv *MigrationValidator) displayValidationTable(title string, results []ValidationResult) {
+	if len(results) == 0 {
+		return
+	}
+
+	// Print section title
+	pterm.DefaultSection.Println(title)
+
+	// Determine appropriate headers based on the validation type
+	var headers []string
+	if strings.Contains(title, "Archive vs Source") {
+		headers = []string{"Metric", "Status", "Source API Value", "Archive Value", "Difference"}
+	} else if strings.Contains(title, "Archive vs Target") {
+		headers = []string{"Metric", "Status", "Archive Value", "Target Value", "Difference"}
+	} else {
+		headers = []string{"Metric", "Status", "Source Value", "Target Value", "Difference"}
+	}
+
+	// Create table data
+	tableData := [][]string{headers}
 
 	for _, result := range results {
 		diffStr := ""
@@ -469,21 +791,22 @@ func (mv *MigrationValidator) PrintValidationResults(results []ValidationResult)
 	// Create and display the table
 	table := pterm.DefaultTable.WithHasHeader().WithData(tableData)
 	table.Render()
+}
 
-	fmt.Println() // Add spacing
-
+// displayValidationSummary calculates and displays the overall validation summary
+func (mv *MigrationValidator) displayValidationSummary(results []ValidationResult) {
 	// Calculate summary
 	passCount := 0
 	failCount := 0
 	warnCount := 0
 
 	for _, result := range results {
-		switch result.Status {
-		case "✅ PASS":
+		switch result.StatusType {
+		case ValidationStatusPass:
 			passCount++
-		case "❌ FAIL":
+		case ValidationStatusFail:
 			failCount++
-		case "⚠️ WARN":
+		case ValidationStatusWarn:
 			warnCount++
 		}
 	}
@@ -552,12 +875,12 @@ func (mv *MigrationValidator) printMarkdownTable(results []ValidationResult) {
 	warnCount := 0
 
 	for _, result := range results {
-		switch result.Status {
-		case "✅ PASS":
+		switch result.StatusType {
+		case ValidationStatusPass:
 			passCount++
-		case "❌ FAIL":
+		case ValidationStatusFail:
 			failCount++
-		case "⚠️ WARN":
+		case ValidationStatusWarn:
 			warnCount++
 		}
 	}

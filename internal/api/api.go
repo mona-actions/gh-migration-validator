@@ -3,8 +3,10 @@ package api
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -226,6 +228,30 @@ func newGitHubGraphQLClient(config ClientConfig) (*RateLimitAwareGraphQLClient, 
 	}, nil
 }
 
+// getGraphQLClient returns the appropriate GraphQL client and client name based on the client type
+func (api *GitHubAPI) getGraphQLClient(clientType ClientType) (*RateLimitAwareGraphQLClient, string, error) {
+	switch clientType {
+	case SourceClient:
+		return api.sourceGraphClient, "source", nil
+	case TargetClient:
+		return api.targetGraphClient, "target", nil
+	default:
+		return nil, "", fmt.Errorf("invalid client type")
+	}
+}
+
+// getRESTClient returns the appropriate REST client and client name based on the client type
+func (api *GitHubAPI) getRESTClient(clientType ClientType) (*github.Client, string, error) {
+	switch clientType {
+	case SourceClient:
+		return api.sourceClient, "source", nil
+	case TargetClient:
+		return api.targetClient, "target", nil
+	default:
+		return nil, "", fmt.Errorf("invalid client type")
+	}
+}
+
 func (c *RateLimitAwareGraphQLClient) Query(ctx context.Context, q interface{}, variables map[string]interface{}) error {
 	var rateLimitQuery struct {
 		RateLimit struct {
@@ -275,21 +301,12 @@ func (api *GitHubAPI) GetIssueCount(clientType ClientType, owner, name string) (
 		"name":  githubv4.String(name),
 	}
 
-	var client *RateLimitAwareGraphQLClient
-	var clientName string
-
-	switch clientType {
-	case SourceClient:
-		client = api.sourceGraphClient
-		clientName = "source"
-	case TargetClient:
-		client = api.targetGraphClient
-		clientName = "target"
-	default:
-		return 0, fmt.Errorf("invalid client type")
+	client, clientName, err := api.getGraphQLClient(clientType)
+	if err != nil {
+		return 0, err
 	}
 
-	err := client.Query(ctx, &query, variables)
+	err = client.Query(ctx, &query, variables)
 	if err != nil {
 		return 0, fmt.Errorf("failed to query %s repository issue count: %v", clientName, err)
 	}
@@ -329,21 +346,12 @@ func (api *GitHubAPI) GetPRCounts(clientType ClientType, owner, name string) (*P
 		"name":  githubv4.String(name),
 	}
 
-	var client *RateLimitAwareGraphQLClient
-	var clientName string
-
-	switch clientType {
-	case SourceClient:
-		client = api.sourceGraphClient
-		clientName = "source"
-	case TargetClient:
-		client = api.targetGraphClient
-		clientName = "target"
-	default:
-		return nil, fmt.Errorf("invalid client type")
+	client, clientName, err := api.getGraphQLClient(clientType)
+	if err != nil {
+		return nil, err
 	}
 
-	err := client.Query(ctx, &query, variables)
+	err = client.Query(ctx, &query, variables)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query %s repository PR counts: %v", clientName, err)
 	}
@@ -378,21 +386,12 @@ func (api *GitHubAPI) GetTagCount(clientType ClientType, owner, name string) (in
 		"name":  githubv4.String(name),
 	}
 
-	var client *RateLimitAwareGraphQLClient
-	var clientName string
-
-	switch clientType {
-	case SourceClient:
-		client = api.sourceGraphClient
-		clientName = "source"
-	case TargetClient:
-		client = api.targetGraphClient
-		clientName = "target"
-	default:
-		return 0, fmt.Errorf("invalid client type")
+	client, clientName, err := api.getGraphQLClient(clientType)
+	if err != nil {
+		return 0, err
 	}
 
-	err := client.Query(ctx, &query, variables)
+	err = client.Query(ctx, &query, variables)
 	if err != nil {
 		return 0, fmt.Errorf("failed to query %s repository tag count: %v", clientName, err)
 	}
@@ -418,21 +417,12 @@ func (api *GitHubAPI) GetReleaseCount(clientType ClientType, owner, name string)
 		"name":  githubv4.String(name),
 	}
 
-	var client *RateLimitAwareGraphQLClient
-	var clientName string
-
-	switch clientType {
-	case SourceClient:
-		client = api.sourceGraphClient
-		clientName = "source"
-	case TargetClient:
-		client = api.targetGraphClient
-		clientName = "target"
-	default:
-		return 0, fmt.Errorf("invalid client type")
+	client, clientName, err := api.getGraphQLClient(clientType)
+	if err != nil {
+		return 0, err
 	}
 
-	err := client.Query(ctx, &query, variables)
+	err = client.Query(ctx, &query, variables)
 	if err != nil {
 		return 0, fmt.Errorf("failed to query %s repository release count: %v", clientName, err)
 	}
@@ -464,21 +454,12 @@ func (api *GitHubAPI) GetCommitCount(clientType ClientType, owner, name string) 
 		"name":  githubv4.String(name),
 	}
 
-	var client *RateLimitAwareGraphQLClient
-	var clientName string
-
-	switch clientType {
-	case SourceClient:
-		client = api.sourceGraphClient
-		clientName = "source"
-	case TargetClient:
-		client = api.targetGraphClient
-		clientName = "target"
-	default:
-		return 0, fmt.Errorf("invalid client type")
+	client, clientName, err := api.getGraphQLClient(clientType)
+	if err != nil {
+		return 0, err
 	}
 
-	err := client.Query(ctx, &query, variables)
+	err = client.Query(ctx, &query, variables)
 	if err != nil {
 		return 0, fmt.Errorf("failed to query %s repository commit count: %v", clientName, err)
 	}
@@ -508,24 +489,241 @@ func (api *GitHubAPI) GetLatestCommitHash(clientType ClientType, owner, name str
 		"name":  githubv4.String(name),
 	}
 
-	var client *RateLimitAwareGraphQLClient
-	var clientName string
-
-	switch clientType {
-	case SourceClient:
-		client = api.sourceGraphClient
-		clientName = "source"
-	case TargetClient:
-		client = api.targetGraphClient
-		clientName = "target"
-	default:
-		return "", fmt.Errorf("invalid client type")
+	client, clientName, err := api.getGraphQLClient(clientType)
+	if err != nil {
+		return "", err
 	}
 
-	err := client.Query(ctx, &query, variables)
+	err = client.Query(ctx, &query, variables)
 	if err != nil {
 		return "", fmt.Errorf("failed to query %s repository latest commit hash: %v", clientName, err)
 	}
 
 	return query.Repository.DefaultBranchRef.Target.Commit.OID, nil
+}
+
+// GetBranchProtectionRulesCount retrieves the total count of branch protection rules for a repository using GraphQL
+func (api *GitHubAPI) GetBranchProtectionRulesCount(clientType ClientType, owner, name string) (int, error) {
+	ctx := context.Background()
+
+	var query struct {
+		Repository struct {
+			NameWithOwner         string
+			BranchProtectionRules struct {
+				TotalCount int
+			}
+		} `graphql:"repository(owner: $owner, name: $name)"`
+	}
+
+	variables := map[string]interface{}{
+		"owner": githubv4.String(owner),
+		"name":  githubv4.String(name),
+	}
+
+	client, clientName, err := api.getGraphQLClient(clientType)
+	if err != nil {
+		return 0, err
+	}
+
+	err = client.Query(ctx, &query, variables)
+	if err != nil {
+		return 0, fmt.Errorf("failed to query %s repository branch protection rules count: %v", clientName, err)
+	}
+
+	return query.Repository.BranchProtectionRules.TotalCount, nil
+}
+
+// GetWebhookCount retrieves the count of active webhooks for a repository using REST API
+func (api *GitHubAPI) GetWebhookCount(clientType ClientType, owner, name string) (int, error) {
+	ctx := context.Background()
+
+	client, clientName, err := api.getRESTClient(clientType)
+	if err != nil {
+		return 0, err
+	}
+
+	// List all webhooks for the repository
+	opts := &github.ListOptions{PerPage: 100}
+	var activeWebhookCount int
+
+	for {
+		webhooks, resp, err := client.Repositories.ListHooks(ctx, owner, name, opts)
+		if err != nil {
+			return 0, fmt.Errorf("failed to query %s repository webhook count: %v", clientName, err)
+		}
+
+		// Count only active webhooks
+		for _, webhook := range webhooks {
+			if webhook.Active != nil && *webhook.Active {
+				activeWebhookCount++
+			}
+		}
+
+		if resp.NextPage == 0 {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+
+	return activeWebhookCount, nil
+}
+
+// ListOrganizationMigrations retrieves the list of organization migrations using REST API
+// Limited to the last 100 migrations
+func (api *GitHubAPI) ListOrganizationMigrations(clientType ClientType, org string) ([]*github.Migration, error) {
+	ctx := context.Background()
+
+	client, clientName, err := api.getRESTClient(clientType)
+	if err != nil {
+		return nil, err
+	}
+
+	opts := &github.ListOptions{PerPage: 100}
+	var allMigrations []*github.Migration
+	migrationCount := 0
+	maxMigrations := 100
+
+	for {
+		migrations, resp, err := client.Migrations.ListMigrations(ctx, org, opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list %s organization migrations: %v", clientName, err)
+		}
+
+		for _, migration := range migrations {
+			if migrationCount >= maxMigrations {
+				break
+			}
+			allMigrations = append(allMigrations, migration)
+			migrationCount++
+		}
+
+		if resp.NextPage == 0 || migrationCount >= maxMigrations {
+			break
+		}
+		opts.Page = resp.NextPage
+	}
+
+	return allMigrations, nil
+}
+
+// MigrationInfo holds information about a migration for display to user
+type MigrationInfo struct {
+	ID           int64
+	CreatedAt    string
+	UpdatedAt    string
+	State        string
+	Repositories []string
+}
+
+// FindMigrationsByRepository finds migrations that contain the specified repository
+func (api *GitHubAPI) FindMigrationsByRepository(clientType ClientType, org, repoName string) ([]*MigrationInfo, error) {
+	migrations, err := api.ListOrganizationMigrations(clientType, org)
+	if err != nil {
+		return nil, err
+	}
+
+	var matchingMigrations []*MigrationInfo
+
+	for _, migration := range migrations {
+		// Only consider migrations that are in "exported" state
+		if migration.GetState() != "exported" {
+			continue // Skip this entire migration - not in exported state
+		}
+
+		// Pre-allocate repository names slice and check for target repo in single pass
+		repositories := make([]string, 0, len(migration.Repositories))
+		foundTarget := false
+
+		for _, repo := range migration.Repositories {
+			currentRepoName := repo.GetName()
+			repositories = append(repositories, currentRepoName)
+
+			if repoName == currentRepoName {
+				foundTarget = true
+			}
+		}
+
+		// Only create MigrationInfo if target repository was found
+		if foundTarget {
+			migrationInfo := &MigrationInfo{
+				ID:           migration.GetID(),
+				CreatedAt:    migration.GetCreatedAt(),
+				UpdatedAt:    migration.GetUpdatedAt(),
+				State:        migration.GetState(),
+				Repositories: repositories, // Assign pre-built slice
+			}
+
+			matchingMigrations = append(matchingMigrations, migrationInfo)
+		}
+	}
+
+	return matchingMigrations, nil
+}
+
+// DownloadMigrationArchive downloads a migration archive and returns the file path
+func (api *GitHubAPI) DownloadMigrationArchive(clientType ClientType, org string, migrationID int64, outputPath string) (string, error) {
+	ctx := context.Background()
+
+	client, clientName, err := api.getRESTClient(clientType)
+	if err != nil {
+		return "", err
+	}
+
+	// Step 1: Get the signed S3 URL from GitHub API
+	signedURL, err := client.Migrations.MigrationArchiveURL(ctx, org, migrationID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get %s migration archive URL: %v", clientName, err)
+	}
+
+	// Step 2: Use a plain HTTP client to download from the signed S3 URL
+	// Note: We don't need authentication for the signed URL - it's already authorized
+	httpClient := &http.Client{}
+	downloadResp, err := httpClient.Get(signedURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to download from signed URL: %v", err)
+	}
+	defer downloadResp.Body.Close()
+
+	if downloadResp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to download migration archive from S3: status %d", downloadResp.StatusCode)
+	}
+
+	// Create the output file
+	file, err := os.Create(outputPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to create output file: %v", err)
+	}
+	defer file.Close()
+
+	// Copy the response body to the file
+	_, err = io.Copy(file, downloadResp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to save migration archive: %v", err)
+	}
+
+	return outputPath, nil
+}
+
+// Helper function to get client config for a given client type
+func getClientConfigForType(clientType ClientType) ClientConfig {
+	switch clientType {
+	case SourceClient:
+		return ClientConfig{
+			Token:          viper.GetString("SOURCE_TOKEN"),
+			Hostname:       viper.GetString("SOURCE_HOSTNAME"),
+			AppID:          viper.GetString("SOURCE_APP_ID"),
+			PrivateKey:     []byte(viper.GetString("SOURCE_PRIVATE_KEY")),
+			InstallationID: viper.GetInt64("SOURCE_INSTALLATION_ID"),
+		}
+	case TargetClient:
+		return ClientConfig{
+			Token:          viper.GetString("TARGET_TOKEN"),
+			Hostname:       viper.GetString("TARGET_HOSTNAME"),
+			AppID:          viper.GetString("TARGET_APP_ID"),
+			PrivateKey:     []byte(viper.GetString("TARGET_PRIVATE_KEY")),
+			InstallationID: viper.GetInt64("TARGET_INSTALLATION_ID"),
+		}
+	default:
+		return ClientConfig{}
+	}
 }

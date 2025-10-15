@@ -1055,3 +1055,215 @@ func TestPRCounts_TotalCalculation(t *testing.T) {
 		})
 	}
 }
+
+func TestGetBranchProtectionRulesCount(t *testing.T) {
+	viper.Set("SOURCE_TOKEN", "source-token")
+	viper.Set("TARGET_TOKEN", "target-token")
+
+	tests := []struct {
+		name       string
+		clientType ClientType
+		owner      string
+		repo       string
+		wantError  bool
+	}{
+		{
+			name:       "source client valid request",
+			clientType: SourceClient,
+			owner:      "testowner",
+			repo:       "testrepo",
+			wantError:  true, // Will error in test due to no real connection
+		},
+		{
+			name:       "target client valid request",
+			clientType: TargetClient,
+			owner:      "testowner",
+			repo:       "testrepo",
+			wantError:  true, // Will error in test due to no real connection
+		},
+		{
+			name:       "invalid client type",
+			clientType: ClientType(999),
+			owner:      "testowner",
+			repo:       "testrepo",
+			wantError:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			api, err := NewGitHubAPI()
+			if err != nil {
+				t.Fatalf("Failed to create API client: %v", err)
+			}
+
+			count, err := api.GetBranchProtectionRulesCount(tt.clientType, tt.owner, tt.repo)
+
+			if (err != nil) != tt.wantError {
+				t.Errorf("GetBranchProtectionRulesCount() error = %v, wantError %v", err, tt.wantError)
+				return
+			}
+
+			if !tt.wantError && count < 0 {
+				t.Errorf("GetBranchProtectionRulesCount() returned negative count: %d", count)
+			}
+		})
+	}
+}
+
+func TestGitHubAPI_GetWebhookCount(t *testing.T) {
+	tests := []struct {
+		name          string
+		clientType    ClientType
+		owner         string
+		repo          string
+		responseBody  string
+		expectedCount int
+		expectedError bool
+	}{
+		{
+			name:       "successful webhook count - multiple webhooks",
+			clientType: SourceClient,
+			owner:      "testowner",
+			repo:       "testrepo",
+			responseBody: `[
+				{
+					"id": 1,
+					"name": "web",
+					"active": true,
+					"events": ["push", "pull_request"],
+					"config": {
+						"url": "https://example.com/webhook1",
+						"content_type": "json"
+					}
+				},
+				{
+					"id": 2, 
+					"name": "web",
+					"active": true,
+					"events": ["issues"],
+					"config": {
+						"url": "https://example.com/webhook2",
+						"content_type": "json"
+					}
+				}
+			]`,
+			expectedCount: 2,
+			expectedError: false,
+		},
+		{
+			name:          "no webhooks",
+			clientType:    TargetClient,
+			owner:         "testowner",
+			repo:          "testrepo",
+			responseBody:  `[]`,
+			expectedCount: 0,
+			expectedError: false,
+		},
+		{
+			name:       "single webhook",
+			clientType: SourceClient,
+			owner:      "testowner",
+			repo:       "testrepo",
+			responseBody: `[
+				{
+					"id": 1,
+					"name": "web",
+					"active": true,
+					"events": ["push"],
+					"config": {
+						"url": "https://example.com/webhook",
+						"content_type": "json"
+					}
+				}
+			]`,
+			expectedCount: 1,
+			expectedError: false,
+		},
+		{
+			name:       "mixed active and inactive webhooks - only counts active",
+			clientType: SourceClient,
+			owner:      "testowner",
+			repo:       "testrepo",
+			responseBody: `[
+				{
+					"id": 1,
+					"name": "web",
+					"active": true,
+					"events": ["push"],
+					"config": {
+						"url": "https://example.com/webhook1",
+						"content_type": "json"
+					}
+				},
+				{
+					"id": 2,
+					"name": "web",
+					"active": false,
+					"events": ["pull_request"],
+					"config": {
+						"url": "https://example.com/webhook2",
+						"content_type": "json"
+					}
+				},
+				{
+					"id": 3,
+					"name": "web",
+					"active": true,
+					"events": ["issues"],
+					"config": {
+						"url": "https://example.com/webhook3",
+						"content_type": "json"
+					}
+				}
+			]`,
+			expectedCount: 2,
+			expectedError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create mock transport that returns the test response
+			mockTransport := &mockRoundTripper{
+				roundTripFunc: func(req *http.Request) (*http.Response, error) {
+					// Verify this is a webhook list request
+					if !strings.Contains(req.URL.Path, "/repos/"+tt.owner+"/"+tt.repo+"/hooks") {
+						t.Errorf("Expected webhook API endpoint, got: %s", req.URL.Path)
+					}
+
+					return &http.Response{
+						StatusCode: 200,
+						Body:       io.NopCloser(strings.NewReader(tt.responseBody)),
+						Header:     make(http.Header),
+					}, nil
+				},
+			}
+
+			api := createTestAPI(mockTransport)
+			count, err := api.GetWebhookCount(tt.clientType, tt.owner, tt.repo)
+
+			if tt.expectedError {
+				if err == nil {
+					t.Errorf("Expected error, but got none")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+				if count != tt.expectedCount {
+					t.Errorf("Expected count %d, got %d", tt.expectedCount, count)
+				}
+			}
+		})
+	}
+}
+
+// mockRoundTripper implements http.RoundTripper for testing
+type mockRoundTripper struct {
+	roundTripFunc func(req *http.Request) (*http.Response, error)
+}
+
+func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return m.roundTripFunc(req)
+}
