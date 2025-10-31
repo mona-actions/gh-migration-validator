@@ -212,6 +212,7 @@ func TestAPI_MethodsWithMissingTokens(t *testing.T) {
 		name         string
 		sourceToken  string
 		targetToken  string
+		apiFactory   func() (*GitHubAPI, error)
 		testFunction func(*GitHubAPI) error
 		expectError  bool
 	}{
@@ -219,6 +220,7 @@ func TestAPI_MethodsWithMissingTokens(t *testing.T) {
 			name:        "GetIssueCount with missing source token",
 			sourceToken: "",
 			targetToken: "test-target-token",
+			apiFactory:  NewSourceOnlyAPI,
 			testFunction: func(api *GitHubAPI) error {
 				_, err := api.GetIssueCount(SourceClient, "owner", "repo")
 				return err
@@ -229,6 +231,7 @@ func TestAPI_MethodsWithMissingTokens(t *testing.T) {
 			name:        "GetIssueCount with missing target token",
 			sourceToken: "test-source-token",
 			targetToken: "",
+			apiFactory:  NewTargetOnlyAPI,
 			testFunction: func(api *GitHubAPI) error {
 				_, err := api.GetIssueCount(TargetClient, "owner", "repo")
 				return err
@@ -239,6 +242,7 @@ func TestAPI_MethodsWithMissingTokens(t *testing.T) {
 			name:        "GetPRCounts with missing source token",
 			sourceToken: "",
 			targetToken: "test-target-token",
+			apiFactory:  NewSourceOnlyAPI,
 			testFunction: func(api *GitHubAPI) error {
 				_, err := api.GetPRCounts(SourceClient, "owner", "repo")
 				return err
@@ -249,6 +253,7 @@ func TestAPI_MethodsWithMissingTokens(t *testing.T) {
 			name:        "GetPRCounts with missing target token",
 			sourceToken: "test-source-token",
 			targetToken: "",
+			apiFactory:  NewTargetOnlyAPI,
 			testFunction: func(api *GitHubAPI) error {
 				_, err := api.GetPRCounts(TargetClient, "owner", "repo")
 				return err
@@ -262,27 +267,11 @@ func TestAPI_MethodsWithMissingTokens(t *testing.T) {
 			viper.Set("SOURCE_TOKEN", tt.sourceToken)
 			viper.Set("TARGET_TOKEN", tt.targetToken)
 
-			// Determine which factory function to use based on the test case
-			var api *GitHubAPI
-			var err error
-
-			if strings.Contains(tt.name, "missing source token") {
-				// For tests expecting source token to be missing, try NewSourceOnlyAPI
-				api, err = NewSourceOnlyAPI()
-				if tt.expectError && err != nil {
-					// This is expected - the factory should fail with missing credentials
-					return
-				}
-			} else if strings.Contains(tt.name, "missing target token") {
-				// For tests expecting target token to be missing, try NewTargetOnlyAPI
-				api, err = NewTargetOnlyAPI()
-				if tt.expectError && err != nil {
-					// This is expected - the factory should fail with missing credentials
-					return
-				}
-			} else {
-				// Default to full API for other tests
-				api, err = NewGitHubAPI()
+			// Use the explicit factory function specified in the test case
+			api, err := tt.apiFactory()
+			if tt.expectError && err != nil {
+				// This is expected - the factory should fail with missing credentials
+				return
 			}
 
 			if err != nil && !tt.expectError {
