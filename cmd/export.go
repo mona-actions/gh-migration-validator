@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"fmt"
+	"mona-actions/gh-migration-validator/internal/api"
 	"mona-actions/gh-migration-validator/internal/export"
 	"mona-actions/gh-migration-validator/internal/migrationarchive"
 	"mona-actions/gh-migration-validator/internal/validator"
@@ -82,13 +83,17 @@ and allow you to select from multiple matches if available when downloading.`,
 			os.Exit(1)
 		}
 
+		// Initialize API with source-only clients
+		ghAPI, err := api.NewSourceOnlyAPI()
+		if err != nil {
+			fmt.Printf("Failed to initialize source API: %v\n", err)
+			os.Exit(1)
+		}
 		// Validate that --download and --archive-path are mutually exclusive
 		if download && archivePath != "" {
 			fmt.Printf("Error: --download and --archive-path flags are mutually exclusive. Please use only one.\n")
 			os.Exit(1)
 		}
-
-		initializeAPI()
 
 		// Create validator
 		migrationValidator := validator.New(ghAPI)
@@ -115,7 +120,7 @@ and allow you to select from multiple matches if available when downloading.`,
 
 		// Export the source repository data (with optional migration archive analysis)
 		timestamp := time.Now()
-		err := export.ExportSourceData(migrationValidator, sourceOrganization, sourceRepo, outputFormat, outputFile, timestamp, archiveDir)
+		err = export.ExportSourceData(migrationValidator, sourceOrganization, sourceRepo, outputFormat, outputFile, timestamp, archiveDir)
 		if err != nil {
 			fmt.Printf("Export failed: %v\n", err)
 			os.Exit(1)

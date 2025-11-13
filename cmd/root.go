@@ -13,12 +13,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-var ghAPI *api.GitHubAPI
-
-func initializeAPI() {
-	ghAPI = api.GetAPI()
-}
-
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "gh-migration-validator",
@@ -89,7 +83,12 @@ between source and target organizations.`,
 			os.Exit(1)
 		}
 
-		initializeAPI()
+		// Initialize API with both source and target clients
+		ghAPI, err := api.NewGitHubAPI()
+		if err != nil {
+			fmt.Printf("Failed to initialize API clients: %v\n", err)
+			os.Exit(1)
+		}
 
 		// Create validator and run migration validation
 		migrationValidator := validator.New(ghAPI)

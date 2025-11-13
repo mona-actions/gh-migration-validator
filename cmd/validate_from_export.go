@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"fmt"
+	"mona-actions/gh-migration-validator/internal/api"
 	"mona-actions/gh-migration-validator/internal/export"
 	"mona-actions/gh-migration-validator/internal/validator"
 	"os"
@@ -80,8 +81,12 @@ The validation compares the same metrics as the standard validate command:
 			os.Exit(1)
 		}
 
-		// Initialize API for target
-		initializeAPI()
+		// Initialize API with target-only clients
+		ghAPI, err := api.NewTargetOnlyAPI()
+		if err != nil {
+			fmt.Printf("Failed to initialize target API: %v\n", err)
+			os.Exit(1)
+		}
 
 		// Create validator and perform validation
 		migrationValidator := validator.New(ghAPI)
@@ -127,6 +132,10 @@ func init() {
 
 // checkExportValidationVars validates the configuration for validate-from-export command
 func checkExportValidationVars(exportFile string) error {
+	// Check export file is provided
+	if exportFile == "" {
+		return fmt.Errorf("export file is required. Set it via --export-file flag")
+	}
 
 	// Check if export file exists
 	if _, err := os.Stat(exportFile); os.IsNotExist(err) {

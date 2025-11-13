@@ -40,23 +40,6 @@ func createTestAPI(mockTransport http.RoundTripper) *GitHubAPI {
 	}
 }
 
-func TestGetAPI(t *testing.T) {
-	// Set minimal test configuration
-	viper.Set("SOURCE_TOKEN", "test-token")
-	viper.Set("TARGET_TOKEN", "test-token")
-
-	resetAPI()
-	api1 := GetAPI()
-	if api1 == nil {
-		t.Error("GetAPI() returned nil")
-	}
-
-	api2 := GetAPI()
-	if api1 != api2 {
-		t.Error("GetAPI() returned different instances")
-	}
-}
-
 // MockTransport implements http.RoundTripper for testing
 type MockTransport struct {
 	Response *http.Response
@@ -98,24 +81,383 @@ func TestNewGitHubAPI(t *testing.T) {
 		}
 	}()
 
-	// Test only the basic token configuration which should work
-	// More complex authentication scenarios are tested in individual component tests
+	// Test with both source and target tokens
 	viper.Set("SOURCE_TOKEN", "test-source-token")
 	viper.Set("TARGET_TOKEN", "test-target-token")
 
-	resetAPI()
+	api, err := NewGitHubAPI()
+	if err != nil {
+		t.Errorf("NewGitHubAPI() error = %v", err)
+		return
+	}
+	if api == nil {
+		t.Error("NewGitHubAPI() returned nil")
+		return
+	}
 
-	// This will create the API with token auth, which should succeed
-	// even though actual API calls will fail in test environment
+	// Verify both clients are created
+	if api.sourceClient == nil {
+		t.Error("Expected sourceClient to be created")
+	}
+	if api.targetClient == nil {
+		t.Error("Expected targetClient to be created")
+	}
+	if api.sourceGraphClient == nil {
+		t.Error("Expected sourceGraphClient to be created")
+	}
+	if api.targetGraphClient == nil {
+		t.Error("Expected targetGraphClient to be created")
+	}
+}
+
+func TestNewGitHubAPI_MissingSourceToken(t *testing.T) {
+	// Store original values
+	originalValues := map[string]interface{}{
+		"SOURCE_TOKEN": viper.Get("SOURCE_TOKEN"),
+		"TARGET_TOKEN": viper.Get("TARGET_TOKEN"),
+	}
+
+	// Restore original values after test
 	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("NewGitHubAPI() panicked (expected in test environment): %v", r)
+		for key, value := range originalValues {
+			viper.Set(key, value)
 		}
 	}()
 
-	api := NewGitHubAPI()
+	// Set up config with missing source token
+	viper.Set("SOURCE_TOKEN", "") // Empty source token
+	viper.Set("TARGET_TOKEN", "test-target-token")
+
+	api, err := NewGitHubAPI()
+	if err == nil {
+		t.Error("NewGitHubAPI() should have failed with missing source token")
+		return
+	}
 	if api != nil {
-		t.Log("NewGitHubAPI() created successfully with token configuration")
+		t.Error("NewGitHubAPI() should return nil when source token is missing")
+	}
+}
+
+func TestNewGitHubAPI_MissingTargetToken(t *testing.T) {
+	// Store original values
+	originalValues := map[string]interface{}{
+		"SOURCE_TOKEN": viper.Get("SOURCE_TOKEN"),
+		"TARGET_TOKEN": viper.Get("TARGET_TOKEN"),
+	}
+
+	// Restore original values after test
+	defer func() {
+		for key, value := range originalValues {
+			viper.Set(key, value)
+		}
+	}()
+
+	// Set up config with missing target token
+	viper.Set("SOURCE_TOKEN", "test-source-token")
+	viper.Set("TARGET_TOKEN", "") // Empty target token
+
+	api, err := NewGitHubAPI()
+	if err == nil {
+		t.Error("NewGitHubAPI() should have failed with missing target token")
+		return
+	}
+	if api != nil {
+		t.Error("NewGitHubAPI() should return nil when target token is missing")
+	}
+}
+
+func TestNewGitHubAPI_BothTokensMissing(t *testing.T) {
+	// Store original values
+	originalValues := map[string]interface{}{
+		"SOURCE_TOKEN": viper.Get("SOURCE_TOKEN"),
+		"TARGET_TOKEN": viper.Get("TARGET_TOKEN"),
+	}
+
+	// Restore original values after test
+	defer func() {
+		for key, value := range originalValues {
+			viper.Set(key, value)
+		}
+	}()
+
+	// Set up config with both tokens missing
+	viper.Set("SOURCE_TOKEN", "") // Empty source token
+	viper.Set("TARGET_TOKEN", "") // Empty target token
+
+	api, err := NewGitHubAPI()
+	if err == nil {
+		t.Error("NewGitHubAPI() should have failed with both tokens missing")
+		return
+	}
+	if api != nil {
+		t.Error("NewGitHubAPI() should return nil when both tokens are missing")
+	}
+}
+
+func TestAPI_MethodsWithMissingTokens(t *testing.T) {
+	// Store original values
+	originalValues := map[string]interface{}{
+		"SOURCE_TOKEN": viper.Get("SOURCE_TOKEN"),
+		"TARGET_TOKEN": viper.Get("TARGET_TOKEN"),
+	}
+
+	// Restore original values after test
+	defer func() {
+		for key, value := range originalValues {
+			viper.Set(key, value)
+		}
+	}()
+
+	tests := []struct {
+		name         string
+		sourceToken  string
+		targetToken  string
+		apiFactory   func() (*GitHubAPI, error)
+		testFunction func(*GitHubAPI) error
+		expectError  bool
+	}{
+		{
+			name:        "GetIssueCount with missing source token",
+			sourceToken: "",
+			targetToken: "test-target-token",
+			apiFactory:  NewSourceOnlyAPI,
+			testFunction: func(api *GitHubAPI) error {
+				_, err := api.GetIssueCount(SourceClient, "owner", "repo")
+				return err
+			},
+			expectError: true,
+		},
+		{
+			name:        "GetIssueCount with missing target token",
+			sourceToken: "test-source-token",
+			targetToken: "",
+			apiFactory:  NewTargetOnlyAPI,
+			testFunction: func(api *GitHubAPI) error {
+				_, err := api.GetIssueCount(TargetClient, "owner", "repo")
+				return err
+			},
+			expectError: true,
+		},
+		{
+			name:        "GetPRCounts with missing source token",
+			sourceToken: "",
+			targetToken: "test-target-token",
+			apiFactory:  NewSourceOnlyAPI,
+			testFunction: func(api *GitHubAPI) error {
+				_, err := api.GetPRCounts(SourceClient, "owner", "repo")
+				return err
+			},
+			expectError: true,
+		},
+		{
+			name:        "GetPRCounts with missing target token",
+			sourceToken: "test-source-token",
+			targetToken: "",
+			apiFactory:  NewTargetOnlyAPI,
+			testFunction: func(api *GitHubAPI) error {
+				_, err := api.GetPRCounts(TargetClient, "owner", "repo")
+				return err
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			viper.Set("SOURCE_TOKEN", tt.sourceToken)
+			viper.Set("TARGET_TOKEN", tt.targetToken)
+
+			// Use the explicit factory function specified in the test case
+			api, err := tt.apiFactory()
+			if tt.expectError && err != nil {
+				// This is expected - the factory should fail with missing credentials
+				return
+			}
+
+			if err != nil && !tt.expectError {
+				t.Errorf("Unexpected error creating API: %v", err)
+				return
+			}
+
+			if api != nil {
+				err = tt.testFunction(api)
+			}
+
+			if tt.expectError && err == nil {
+				t.Error("Expected error when using API method with missing token, but got none")
+			}
+			if !tt.expectError && err != nil {
+				t.Errorf("Unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestNewSourceOnlyAPI(t *testing.T) {
+	// Store original values
+	originalValues := map[string]interface{}{
+		"SOURCE_TOKEN":  viper.Get("SOURCE_TOKEN"),
+		"SOURCE_APP_ID": viper.Get("SOURCE_APP_ID"),
+	}
+
+	// Restore original values after test
+	defer func() {
+		for key, value := range originalValues {
+			viper.Set(key, value)
+		}
+	}()
+
+	tests := []struct {
+		name        string
+		sourceToken string
+		sourceAppID string
+		wantError   bool
+	}{
+		{
+			name:        "valid source token",
+			sourceToken: "test-source-token",
+			sourceAppID: "",
+			wantError:   false,
+		},
+		{
+			name:        "missing credentials",
+			sourceToken: "",
+			sourceAppID: "",
+			wantError:   true,
+		},
+		{
+			name:        "partial app credentials (app ID only)",
+			sourceToken: "",
+			sourceAppID: "12345",
+			wantError:   true, // Should fail because we need private key and installation ID too
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			viper.Set("SOURCE_TOKEN", tt.sourceToken)
+			viper.Set("SOURCE_APP_ID", tt.sourceAppID)
+
+			api, err := NewSourceOnlyAPI()
+
+			if tt.wantError {
+				if err == nil {
+					t.Error("NewSourceOnlyAPI() should have failed with missing credentials")
+				}
+				if api != nil {
+					t.Error("NewSourceOnlyAPI() should return nil when credentials are missing")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("NewSourceOnlyAPI() error = %v", err)
+					return
+				}
+				if api == nil {
+					t.Error("NewSourceOnlyAPI() returned nil")
+					return
+				}
+
+				// Verify only source clients are created
+				if api.sourceClient == nil {
+					t.Error("Expected sourceClient to be created")
+				}
+				if api.sourceGraphClient == nil {
+					t.Error("Expected sourceGraphClient to be created")
+				}
+
+				// Verify target clients are nil
+				if api.targetClient != nil {
+					t.Error("Expected targetClient to be nil in source-only API")
+				}
+				if api.targetGraphClient != nil {
+					t.Error("Expected targetGraphClient to be nil in source-only API")
+				}
+			}
+		})
+	}
+}
+
+func TestNewTargetOnlyAPI(t *testing.T) {
+	// Store original values
+	originalValues := map[string]interface{}{
+		"TARGET_TOKEN":  viper.Get("TARGET_TOKEN"),
+		"TARGET_APP_ID": viper.Get("TARGET_APP_ID"),
+	}
+
+	// Restore original values after test
+	defer func() {
+		for key, value := range originalValues {
+			viper.Set(key, value)
+		}
+	}()
+
+	tests := []struct {
+		name        string
+		targetToken string
+		targetAppID string
+		wantError   bool
+	}{
+		{
+			name:        "valid target token",
+			targetToken: "test-target-token",
+			targetAppID: "",
+			wantError:   false,
+		},
+		{
+			name:        "partial app credentials (app ID only)",
+			targetToken: "",
+			targetAppID: "12345",
+			wantError:   true, // Should fail because we need private key and installation ID too
+		},
+		{
+			name:        "missing credentials",
+			targetToken: "",
+			targetAppID: "",
+			wantError:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			viper.Set("TARGET_TOKEN", tt.targetToken)
+			viper.Set("TARGET_APP_ID", tt.targetAppID)
+
+			api, err := NewTargetOnlyAPI()
+
+			if tt.wantError {
+				if err == nil {
+					t.Error("NewTargetOnlyAPI() should have failed with missing credentials")
+				}
+				if api != nil {
+					t.Error("NewTargetOnlyAPI() should return nil when credentials are missing")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("NewTargetOnlyAPI() error = %v", err)
+					return
+				}
+				if api == nil {
+					t.Error("NewTargetOnlyAPI() returned nil")
+					return
+				}
+
+				// Verify only target clients are created
+				if api.targetClient == nil {
+					t.Error("Expected targetClient to be created")
+				}
+				if api.targetGraphClient == nil {
+					t.Error("Expected targetGraphClient to be created")
+				}
+
+				// Verify source clients are nil
+				if api.sourceClient != nil {
+					t.Error("Expected sourceClient to be nil in target-only API")
+				}
+				if api.sourceGraphClient != nil {
+					t.Error("Expected sourceGraphClient to be nil in target-only API")
+				}
+			}
+		})
 	}
 }
 
@@ -170,14 +512,13 @@ func TestCreateAuthenticatedClient_InvalidAppID(t *testing.T) {
 func TestCreateAuthenticatedClient_NoCredentials(t *testing.T) {
 	config := ClientConfig{}
 
-	_, err := createAuthenticatedClient(config)
+	client, err := createAuthenticatedClient(config)
 	if err == nil {
-		t.Error("createAuthenticatedClient() should have failed with no credentials")
+		t.Error("createAuthenticatedClient() should error with no credentials")
 	}
 
-	expectedError := "please provide either a token or GitHub App credentials"
-	if err.Error() != expectedError {
-		t.Errorf("createAuthenticatedClient() error = %v, want %v", err.Error(), expectedError)
+	if client != nil {
+		t.Error("createAuthenticatedClient() should return nil client when no credentials are provided")
 	}
 }
 
@@ -220,9 +561,9 @@ func TestNewGitHubClient(t *testing.T) {
 				}
 			}()
 
-			client := newGitHubClient(tt.config)
-			if !tt.wantPanic && client == nil {
-				t.Error("newGitHubClient() returned nil")
+			client, err := newGitHubClient(tt.config)
+			if !tt.wantPanic && (client == nil || err != nil) {
+				t.Errorf("newGitHubClient() returned nil or error: %v", err)
 			}
 		})
 	}
@@ -259,9 +600,9 @@ func TestNewGitHubGraphQLClient(t *testing.T) {
 				}
 			}()
 
-			client := newGitHubGraphQLClient(tt.config)
-			if !tt.wantPanic && client == nil {
-				t.Error("newGitHubGraphQLClient() returned nil")
+			client, err := newGitHubGraphQLClient(tt.config)
+			if !tt.wantPanic && (client == nil || err != nil) {
+				t.Errorf("newGitHubGraphQLClient() returned nil or error: %v", err)
 			}
 		})
 	}
@@ -316,9 +657,9 @@ func TestRateLimitAwareGraphQLClient_Query(t *testing.T) {
 				recover() // Ignore the panic for this test
 			}()
 
-			client := newGitHubGraphQLClient(config)
-			if client == nil {
-				t.Error("newGitHubGraphQLClient() returned nil")
+			client, err := newGitHubGraphQLClient(config)
+			if client == nil || err != nil {
+				t.Errorf("newGitHubGraphQLClient() returned nil or error: %v", err)
 			}
 		})
 	}
@@ -362,8 +703,11 @@ func TestGetIssueCount(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Reset and get fresh API instance
-			resetAPI()
-			api := GetAPI()
+
+			api, err := NewGitHubAPI()
+			if err != nil {
+				t.Fatalf("Failed to create API: %v", err)
+			}
 
 			count, err := api.GetIssueCount(tt.clientType, tt.owner, tt.repo)
 
@@ -415,8 +759,11 @@ func TestGetPRCounts(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resetAPI()
-			api := GetAPI()
+
+			api, err := NewGitHubAPI()
+			if err != nil {
+				t.Fatalf("Failed to create API client: %v", err)
+			}
 
 			counts, err := api.GetPRCounts(tt.clientType, tt.owner, tt.repo)
 
@@ -473,8 +820,11 @@ func TestGetTagCount(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resetAPI()
-			api := GetAPI()
+
+			api, err := NewGitHubAPI()
+			if err != nil {
+				t.Fatalf("Failed to create API client: %v", err)
+			}
 
 			count, err := api.GetTagCount(tt.clientType, tt.owner, tt.repo)
 
@@ -526,8 +876,11 @@ func TestGetReleaseCount(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resetAPI()
-			api := GetAPI()
+
+			api, err := NewGitHubAPI()
+			if err != nil {
+				t.Fatalf("Failed to create API client: %v", err)
+			}
 
 			count, err := api.GetReleaseCount(tt.clientType, tt.owner, tt.repo)
 
@@ -579,8 +932,10 @@ func TestGetCommitCount(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resetAPI()
-			api := GetAPI()
+			api, err := NewGitHubAPI()
+			if err != nil {
+				t.Fatalf("Failed to create API client: %v", err)
+			}
 
 			count, err := api.GetCommitCount(tt.clientType, tt.owner, tt.repo)
 
@@ -632,8 +987,10 @@ func TestGetLatestCommitHash(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resetAPI()
-			api := GetAPI()
+			api, err := NewGitHubAPI()
+			if err != nil {
+				t.Fatalf("Failed to create API client: %v", err)
+			}
 
 			hash, err := api.GetLatestCommitHash(tt.clientType, tt.owner, tt.repo)
 
@@ -724,8 +1081,10 @@ func TestGetBranchProtectionRulesCount(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resetAPI()
-			api := GetAPI()
+			api, err := NewGitHubAPI()
+			if err != nil {
+				t.Fatalf("Failed to create API client: %v", err)
+			}
 
 			count, err := api.GetBranchProtectionRulesCount(tt.clientType, tt.owner, tt.repo)
 
