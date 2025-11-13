@@ -28,7 +28,7 @@ Download and analyze migration archives automatically during export:
 ```bash
 gh migration-validator export \
   --source-organization "source-org" \
-  --source-repo "my-repo" \
+  --source-repository "my-repo" \
   --source-token "ghp_xxx" \
   --download
 ```
@@ -40,7 +40,7 @@ Specify where to download migration archives:
 ```bash
 gh migration-validator export \
   --source-organization "source-org" \
-  --source-repo "my-repo" \
+  --source-repository "my-repo" \
   --source-token "ghp_xxx" \
   --download \
   --download-path "/path/to/custom/directory"
@@ -53,7 +53,7 @@ If you already have an extracted migration archive directory:
 ```bash
 gh migration-validator export \
   --source-organization "source-org" \
-  --source-repo "my-repo" \
+  --source-repository "my-repo" \
   --source-token "ghp_xxx" \
   --archive-path "path/to/extracted/migration-archive"
 ```
@@ -160,7 +160,7 @@ When validating from an export that contains migration archive data, the tool pe
 gh migration-validator validate-from-export \
   --export-file ".exports/source-org_my-repo_export_20251013_144908.json" \
   --target-organization "target-org" \
-  --target-repo "my-repo" \
+  --target-repository "my-repo" \
   --target-token "ghp_yyy"
 ```
 

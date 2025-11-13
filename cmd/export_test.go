@@ -19,23 +19,23 @@ func TestExportFlagValidation(t *testing.T) {
 	}{
 		{
 			name:           "both download and archive-path flags should fail",
-			args:           []string{"--source-organization", "test-org", "--source-repo", "test-repo", "--download", "--archive-path", "/some/path"},
+			args:           []string{"--source-organization", "test-org", "--source-repository", "test-repo", "--download", "--archive-path", "/some/path"},
 			expectedError:  true,
 			expectedErrMsg: "--download and --archive-path flags are mutually exclusive. Please use only one.",
 		},
 		{
 			name:          "download flag alone should be valid",
-			args:          []string{"--source-organization", "test-org", "--source-repo", "test-repo", "--download"},
+			args:          []string{"--source-organization", "test-org", "--source-repository", "test-repo", "--download"},
 			expectedError: false,
 		},
 		{
 			name:          "archive-path flag alone should be valid",
-			args:          []string{"--source-organization", "test-org", "--source-repo", "test-repo", "--archive-path", "/some/path"},
+			args:          []string{"--source-organization", "test-org", "--source-repository", "test-repo", "--archive-path", "/some/path"},
 			expectedError: false,
 		},
 		{
 			name:          "download-path with download should be valid",
-			args:          []string{"--source-organization", "test-org", "--source-repo", "test-repo", "--download", "--download-path", "/custom/path"},
+			args:          []string{"--source-organization", "test-org", "--source-repository", "test-repo", "--download", "--download-path", "/custom/path"},
 			expectedError: false,
 		},
 	}
@@ -70,14 +70,14 @@ func TestExportFlagValidation(t *testing.T) {
 
 			// Add all the flags
 			cmd.Flags().StringP("source-organization", "s", "", "Source Organization")
-			cmd.Flags().StringP("source-repo", "", "", "Source repository")
+			cmd.Flags().StringP("source-repository", "", "", "Source repository")
 			cmd.Flags().BoolP("download", "d", false, "Download and extract migration archive")
 			cmd.Flags().StringP("download-path", "", "", "Directory to download migration archives")
 			cmd.Flags().StringP("archive-path", "p", "", "Path to existing extracted archive")
 
 			// Mark required flags
 			cmd.MarkFlagRequired("source-organization")
-			cmd.MarkFlagRequired("source-repo")
+			cmd.MarkFlagRequired("source-repository")
 
 			// Capture output
 			var buf bytes.Buffer
@@ -115,21 +115,21 @@ func TestExportFlagValues(t *testing.T) {
 	}{
 		{
 			name:                 "download flag sets boolean correctly",
-			args:                 []string{"--source-organization", "test-org", "--source-repo", "test-repo", "--download"},
+			args:                 []string{"--source-organization", "test-org", "--source-repository", "test-repo", "--download"},
 			expectedDownload:     true,
 			expectedDownloadPath: "",
 			expectedArchivePath:  "",
 		},
 		{
 			name:                 "download-path flag sets string correctly",
-			args:                 []string{"--source-organization", "test-org", "--source-repo", "test-repo", "--download", "--download-path", "/custom/path"},
+			args:                 []string{"--source-organization", "test-org", "--source-repository", "test-repo", "--download", "--download-path", "/custom/path"},
 			expectedDownload:     true,
 			expectedDownloadPath: "/custom/path",
 			expectedArchivePath:  "",
 		},
 		{
 			name:                 "archive-path flag sets string correctly",
-			args:                 []string{"--source-organization", "test-org", "--source-repo", "test-repo", "--archive-path", "/existing/path"},
+			args:                 []string{"--source-organization", "test-org", "--source-repository", "test-repo", "--archive-path", "/existing/path"},
 			expectedDownload:     false,
 			expectedDownloadPath: "",
 			expectedArchivePath:  "/existing/path",
@@ -162,7 +162,7 @@ func TestExportFlagValues(t *testing.T) {
 
 			// Add flags
 			cmd.Flags().StringP("source-organization", "s", "", "Source Organization")
-			cmd.Flags().StringP("source-repo", "", "", "Source repository")
+			cmd.Flags().StringP("source-repository", "", "", "Source repository")
 			cmd.Flags().BoolP("download", "d", false, "Download and extract migration archive")
 			cmd.Flags().StringP("download-path", "", "", "Directory to download migration archives")
 			cmd.Flags().StringP("archive-path", "p", "", "Path to existing extracted archive")

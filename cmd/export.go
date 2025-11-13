@@ -47,7 +47,7 @@ and allow you to select from multiple matches if available when downloading.`,
 		sourceOrganization := cmd.Flag("source-organization").Value.String()
 		sourceToken := cmd.Flag("source-token").Value.String()
 		ghHostname := cmd.Flag("source-hostname").Value.String()
-		sourceRepo := cmd.Flag("source-repo").Value.String()
+		sourceRepo := cmd.Flag("source-repository").Value.String()
 		outputFormat := cmd.Flag("format").Value.String()
 		outputFile := cmd.Flag("output").Value.String()
 		download, _ := cmd.Flags().GetBool("download")
@@ -140,8 +140,8 @@ func init() {
 
 	exportCmd.Flags().StringP("source-hostname", "u", "", "GitHub Enterprise source hostname url (optional) Ex. https://github.example.com")
 
-	exportCmd.Flags().StringP("source-repo", "", "", "Source repository name to export (just the repo name, not owner/repo)")
-	exportCmd.MarkFlagRequired("source-repo")
+	exportCmd.Flags().StringP("source-repository", "", "", "Source repository name to export (just the repo name, not owner/repo)")
+	exportCmd.MarkFlagRequired("source-repository")
 
 	exportCmd.Flags().StringP("format", "f", "json", "Output format: json or csv")
 
@@ -165,7 +165,7 @@ func checkExportVars() error {
 	// Check source repository
 	sourceRepo := viper.GetString("SOURCE_REPO")
 	if sourceRepo == "" {
-		return fmt.Errorf("source repository is required. Set it via --source-repo flag")
+		return fmt.Errorf("source repository is required. Set it via --source-repository flag")
 	}
 
 	return nil

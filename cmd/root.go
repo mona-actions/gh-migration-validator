@@ -31,8 +31,8 @@ between source and target organizations.`,
 		sourceToken := cmd.Flag("source-token").Value.String()
 		targetToken := cmd.Flag("target-token").Value.String()
 		ghHostname := cmd.Flag("source-hostname").Value.String()
-		sourceRepo := cmd.Flag("source-repo").Value.String()
-		targetRepo := cmd.Flag("target-repo").Value.String()
+		sourceRepo := cmd.Flag("source-repository").Value.String()
+		targetRepo := cmd.Flag("target-repository").Value.String()
 		markdownTable := cmd.Flag("markdown-table").Value.String()
 
 		// Only set ENV variables if flag values are provided (not empty)
@@ -134,9 +134,9 @@ func init() {
 
 	rootCmd.Flags().StringP("source-hostname", "u", "", "GitHub Enterprise source hostname url (optional) Ex. https://github.example.com")
 
-	rootCmd.Flags().StringP("source-repo", "", "", "Source repository name to verify against (just the repo name, not owner/repo)")
+	rootCmd.Flags().StringP("source-repository", "", "", "Source repository name to verify against (just the repo name, not owner/repo)")
 
-	rootCmd.Flags().StringP("target-repo", "", "", "Target repository name to verify against (just the repo name, not owner/repo)")
+	rootCmd.Flags().StringP("target-repository", "", "", "Target repository name to verify against (just the repo name, not owner/repo)")
 
 	//boolean flag for printing the markdown table
 	rootCmd.Flags().BoolP("markdown-table", "m", false, "Print results as a markdown table")
@@ -166,11 +166,11 @@ func checkVars() error {
 
 	// We need both source and target repositories
 	if sourceRepo == "" {
-		return fmt.Errorf("source repository is required. Set it via --source-repo flag")
+		return fmt.Errorf("source repository is required. Set it via --source-repository flag")
 	}
 
 	if targetRepo == "" {
-		return fmt.Errorf("target repository is required. Set it via --target-repo flag")
+		return fmt.Errorf("target repository is required. Set it via --target-repository flag")
 	}
 
 	return nil

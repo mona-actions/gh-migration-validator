@@ -42,7 +42,7 @@ The validation compares the same metrics as the standard validate command:
 		targetOrganization := cmd.Flag("target-organization").Value.String()
 		targetToken := cmd.Flag("target-token").Value.String()
 		targetHostname := cmd.Flag("target-hostname").Value.String()
-		targetRepo := cmd.Flag("target-repo").Value.String()
+		targetRepo := cmd.Flag("target-repository").Value.String()
 		markdownTable, err := cmd.Flags().GetBool("markdown-table")
 		if err != nil {
 			fmt.Printf("Failed to parse 'markdown-table' flag: %v\n", err)
@@ -124,8 +124,8 @@ func init() {
 
 	validateFromExportCmd.Flags().StringP("target-hostname", "v", "", "GitHub Enterprise target hostname url (optional) Ex. https://github.example.com")
 
-	validateFromExportCmd.Flags().String("target-repo", "", "Target repository name to validate (just the repo name, not owner/repo)")
-	validateFromExportCmd.MarkFlagRequired("target-repo")
+	validateFromExportCmd.Flags().String("target-repository", "", "Target repository name to validate (just the repo name, not owner/repo)")
+	validateFromExportCmd.MarkFlagRequired("target-repository")
 
 	validateFromExportCmd.Flags().BoolP("markdown-table", "m", false, "Output results in markdown table format")
 }
