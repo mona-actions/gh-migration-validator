@@ -44,8 +44,8 @@ The tool will automatically search for migrations containing the specified repos
 and allow you to select from multiple matches if available when downloading.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Get parameters from flags
-		sourceOrganization := cmd.Flag("source-organization").Value.String()
-		sourceToken := cmd.Flag("source-token").Value.String()
+		sourceOrganization := cmd.Flag("github-source-org").Value.String()
+		sourceToken := cmd.Flag("github-source-pat").Value.String()
 		ghHostname := cmd.Flag("source-hostname").Value.String()
 		sourceRepo := cmd.Flag("source-repo").Value.String()
 		outputFormat := cmd.Flag("format").Value.String()
@@ -133,10 +133,10 @@ func init() {
 	rootCmd.AddCommand(exportCmd)
 
 	// Define flags specific to export command
-	exportCmd.Flags().StringP("source-organization", "s", "", "Source Organization to export data from")
-	exportCmd.MarkFlagRequired("source-organization")
+	exportCmd.Flags().StringP("github-source-org", "s", "", "Source Organization to export data from")
+	exportCmd.MarkFlagRequired("github-source-org")
 
-	exportCmd.Flags().StringP("source-token", "a", "", "Source Organization GitHub token. Scopes: read:org, read:user, user:email")
+	exportCmd.Flags().StringP("github-source-pat", "a", "", "Source Organization GitHub token. Scopes: read:org, read:user, user:email")
 
 	exportCmd.Flags().StringP("source-hostname", "u", "", "GitHub Enterprise source hostname url (optional) Ex. https://github.example.com")
 
@@ -159,7 +159,7 @@ func checkExportVars() error {
 	// Check for source token
 	sourceToken := viper.GetString("SOURCE_TOKEN")
 	if sourceToken == "" {
-		return fmt.Errorf("source token is required. Set it via --source-token flag or GHMV_SOURCE_TOKEN environment variable")
+		return fmt.Errorf("source token is required. Set it via --github-source-pat flag or GHMV_SOURCE_TOKEN environment variable")
 	}
 
 	// Check source repository
