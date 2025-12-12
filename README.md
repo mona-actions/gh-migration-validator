@@ -22,24 +22,24 @@ gh extension install mona-actions/gh-migration-validator
 
 ```bash
 gh migration-validator \
-  --source-organization "source-org" \
-  --target-organization "target-org" \
-  --source-repository "my-repo" \
-  --target-repository "my-repo" \
-  --source-token "ghp_xxx" \
-  --target-token "ghp_yyy"
+  --github-source-org "source-org" \
+  --github-target-org "target-org" \
+  --source-repo "my-repo" \
+  --target-repo "my-repo" \
+  --github-source-pat "ghp_xxx" \
+  --github-target-pat "ghp_yyy"
 ```
 
 ### With Markdown Output
 
 ```bash
 gh migration-validator \
-  --source-organization "source-org" \
-  --target-organization "target-org" \
-  --source-repository "my-repo" \
-  --target-repository "my-repo" \
-  --source-token "ghp_xxx" \
-  --target-token "ghp_yyy" \
+  --github-source-org "source-org" \
+  --github-target-org "target-org" \
+  --source-repo "my-repo" \
+  --target-repo "my-repo" \
+  --github-source-pat "ghp_xxx" \
+  --github-target-pat "ghp_yyy" \
   --markdown-table
 ```
 
@@ -100,9 +100,9 @@ This workflow is particularly useful when:
 
 ```bash
 gh migration-validator export \
-  --source-organization "source-org" \
-  --source-repository "my-repo" \
-  --source-token "ghp_xxx" \
+  --github-source-org "source-org" \
+  --source-repo "my-repo" \
+  --github-source-pat "ghp_xxx" \
   --format json \
   --output ".exports/my-export.json"
 ```
@@ -113,9 +113,9 @@ The tool can also download and analyze migration archives to include additional 
 
 ### Export Options
 
-- `--source-organization` (required): Source organization name
-- `--source-repository` (required): Source repository name  
-- `--source-token` (required): GitHub token with read permissions
+- `--github-source-org` (required): Source organization name
+- `--source-repo` (required): Source repository name  
+- `--github-source-pat` (required): GitHub token with read permissions
 - `--source-hostname` (optional): GitHub Enterprise Server URL
 - `--format` (optional): Export format - `json` or `csv` (default: `json`)
 - `--output` (optional): Output file path (auto-generated if not specified)
@@ -181,9 +181,9 @@ The `validate-from-export` command allows you to validate a target repository ag
 ```bash
 gh migration-validator validate-from-export \
   --export-file ".exports/mona-actions_my-repo_export_20251002_144908.json" \
-  --target-organization "target-org" \
-  --target-repository "my-repo" \
-  --target-token "ghp_yyy"
+  --github-target-org "target-org" \
+  --target-repo "my-repo" \
+  --github-target-pat "ghp_yyy"
 ```
 
 ### Using Existing Archive Directory
@@ -192,18 +192,18 @@ If you already have an extracted migration archive directory:
 
 ```bash
 gh migration-validator export \
-  --source-organization "source-org" \
-  --source-repository "my-repo" \
-  --source-token "ghp_xxx" \
+  --github-source-org "source-org" \
+  --source-repo "my-repo" \
+  --github-source-pat "ghp_xxx" \
   --archive-path "path/to/extracted/migration-archive"
 ```
 
 ### Validate-from-Export Options
 
 - `--export-file` (required): Path to the exported JSON file containing source data
-- `--target-organization` (required): Target organization name
-- `--target-repository` (required): Target repository name
-- `--target-token` (required): GitHub token with read permissions for target
+- `--github-target-org` (required): Target organization name
+- `--target-repo` (required): Target repository name
+- `--github-target-pat` (required): GitHub token with read permissions for target
 - `--target-hostname` (optional): GitHub Enterprise Server URL for target
 - `--markdown-table` (optional): Output results in markdown format
 
@@ -224,9 +224,9 @@ gh migration-validator validate-from-export --export-file "path/to/export.json"
 
    ```bash
    gh migration-validator export \
-     --source-organization "source-org" \
-     --source-repository "my-repo" \
-     --source-token "ghp_xxx"
+     --github-source-org "source-org" \
+     --source-repo "my-repo" \
+     --github-source-pat "ghp_xxx"
    ```
 
 2. **Perform your migration** (using GitHub's migration tools)
@@ -236,9 +236,9 @@ gh migration-validator validate-from-export --export-file "path/to/export.json"
    ```bash
    gh migration-validator validate-from-export \
      --export-file ".exports/source-org_my-repo_export_20251002_144908.json" \
-     --target-organization "target-org" \
-     --target-repository "my-repo" \
-     --target-token "ghp_yyy"
+     --github-target-org "target-org" \
+     --target-repo "my-repo" \
+     --github-target-pat "ghp_yyy"
    ```
 
 This ensures you're validating against the exact state of the source repository when the migration occurred, regardless of any subsequent changes.

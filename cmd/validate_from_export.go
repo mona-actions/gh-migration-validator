@@ -39,10 +39,10 @@ The validation compares the same metrics as the standard validate command:
 	Run: func(cmd *cobra.Command, args []string) {
 		// Get parameters from flags
 		exportFile := cmd.Flag("export-file").Value.String()
-		targetOrganization := cmd.Flag("target-organization").Value.String()
-		targetToken := cmd.Flag("target-token").Value.String()
+		targetOrganization := cmd.Flag("github-target-org").Value.String()
+		targetToken := cmd.Flag("github-target-pat").Value.String()
 		targetHostname := cmd.Flag("target-hostname").Value.String()
-		targetRepo := cmd.Flag("target-repository").Value.String()
+		targetRepo := cmd.Flag("target-repo").Value.String()
 		markdownTable, err := cmd.Flags().GetBool("markdown-table")
 		if err != nil {
 			fmt.Printf("Failed to parse 'markdown-table' flag: %v\n", err)
@@ -117,15 +117,15 @@ func init() {
 	validateFromExportCmd.Flags().StringP("export-file", "e", "", "Path to the exported JSON file to use as source data")
 	validateFromExportCmd.MarkFlagRequired("export-file")
 
-	validateFromExportCmd.Flags().StringP("target-organization", "t", "", "Target Organization to validate against")
-	validateFromExportCmd.MarkFlagRequired("target-organization")
+	validateFromExportCmd.Flags().StringP("github-target-org", "t", "", "Target Organization to validate against")
+	validateFromExportCmd.MarkFlagRequired("github-target-org")
 
-	validateFromExportCmd.Flags().StringP("target-token", "b", "", "Target Organization GitHub token. Scopes: read:org, read:user, user:email")
+	validateFromExportCmd.Flags().StringP("github-target-pat", "b", "", "Target Organization GitHub token. Scopes: read:org, read:user, user:email")
 
 	validateFromExportCmd.Flags().StringP("target-hostname", "v", "", "GitHub Enterprise target hostname url (optional) Ex. https://github.example.com")
 
-	validateFromExportCmd.Flags().String("target-repository", "", "Target repository name to validate (just the repo name, not owner/repo)")
-	validateFromExportCmd.MarkFlagRequired("target-repository")
+	validateFromExportCmd.Flags().String("target-repo", "", "Target repository name to validate (just the repo name, not owner/repo)")
+	validateFromExportCmd.MarkFlagRequired("target-repo")
 
 	validateFromExportCmd.Flags().BoolP("markdown-table", "m", false, "Output results in markdown table format")
 }
@@ -145,7 +145,7 @@ func checkExportValidationVars(exportFile string) error {
 	// Check for target token (can come from flag or environment variable)
 	targetToken := viper.GetString("TARGET_TOKEN")
 	if targetToken == "" {
-		return fmt.Errorf("target token is required. Set it via --target-token flag or GHMV_TARGET_TOKEN environment variable")
+		return fmt.Errorf("target token is required. Set it via --github-target-pat flag or GHMV_TARGET_TOKEN environment variable")
 	}
 
 	return nil

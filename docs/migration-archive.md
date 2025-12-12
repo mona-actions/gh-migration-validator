@@ -27,9 +27,9 @@ Download and analyze migration archives automatically during export:
 
 ```bash
 gh migration-validator export \
-  --source-organization "source-org" \
-  --source-repository "my-repo" \
-  --source-token "ghp_xxx" \
+  --github-source-org "source-org" \
+  --source-repo "my-repo" \
+  --github-source-pat "ghp_xxx" \
   --download
 ```
 
@@ -39,9 +39,9 @@ Specify where to download migration archives:
 
 ```bash
 gh migration-validator export \
-  --source-organization "source-org" \
-  --source-repository "my-repo" \
-  --source-token "ghp_xxx" \
+  --github-source-org "source-org" \
+  --source-repo "my-repo" \
+  --github-source-pat "ghp_xxx" \
   --download \
   --download-path "/path/to/custom/directory"
 ```
@@ -52,9 +52,9 @@ If you already have an extracted migration archive directory:
 
 ```bash
 gh migration-validator export \
-  --source-organization "source-org" \
-  --source-repository "my-repo" \
-  --source-token "ghp_xxx" \
+  --github-source-org "source-org" \
+  --source-repo "my-repo" \
+  --github-source-pat "ghp_xxx" \
   --archive-path "path/to/extracted/migration-archive"
 ```
 
@@ -64,7 +64,7 @@ gh migration-validator export \
 - `--download-path` (optional): Directory to download migration archives to (default: ./migration-archives)  
 - `--archive-path` (optional): Path to an existing extracted migration archive directory
 
-**Note**: `--download` and `--archive-path` are mutually exclusive. When using `--download`, you must also provide `--source-organization`. You can optionally specify `--download-path` to choose where archives are saved.
+**Note**: `--download` and `--archive-path` are mutually exclusive. When using `--download`, you must also provide `--github-source-org`. You can optionally specify `--download-path` to choose where archives are saved.
 
 ## Migration Archive Workflow
 
@@ -159,9 +159,9 @@ When validating from an export that contains migration archive data, the tool pe
 ```bash
 gh migration-validator validate-from-export \
   --export-file ".exports/source-org_my-repo_export_20251013_144908.json" \
-  --target-organization "target-org" \
-  --target-repository "my-repo" \
-  --target-token "ghp_yyy"
+  --github-target-org "target-org" \
+  --target-repo "my-repo" \
+  --github-target-pat "ghp_yyy"
 ```
 
 ### Enhanced Validation Output
