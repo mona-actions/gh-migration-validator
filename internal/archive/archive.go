@@ -11,6 +11,23 @@ import (
 	"strings"
 )
 
+// isSafeSymlinkTarget checks if a symlink target will remain within the destPath after resolution.
+func isSafeSymlinkTarget(linkname, destPath string) bool {
+	// Refuse absolute targets
+	if filepath.IsAbs(linkname) {
+		return false
+	}
+	targetPath := filepath.Join(destPath, linkname)
+	realTarget, err := filepath.EvalSymlinks(targetPath)
+	if err != nil {
+		// If cannot resolve, be conservative: refuse
+		return false
+	}
+	cleanDestPath := filepath.Clean(destPath)
+	relpath, err := filepath.Rel(cleanDestPath, realTarget)
+	return err == nil && !strings.HasPrefix(filepath.Clean(relpath), "..")
+}
+
 // ExtractTarGz extracts a .tar.gz file to the specified destination directory
 func ExtractTarGz(srcPath, destPath string) error {
 	// Open the source file
@@ -78,7 +95,10 @@ func ExtractTarGz(srcPath, destPath string) error {
 			}
 
 		case tar.TypeSymlink:
-			// Create symbolic link
+			// Securely create symbolic link after validating target
+			if !isSafeSymlinkTarget(header.Linkname, destPath) {
+				return fmt.Errorf("symlink target escapes extraction directory: %s -> %s", fullPath, header.Linkname)
+			}
 			if err := os.Symlink(header.Linkname, fullPath); err != nil {
 				return fmt.Errorf("failed to create symlink %s: %v", fullPath, err)
 			}
