@@ -202,10 +202,175 @@ func TestExtractTarGz_MaliciousSymlinks(t *testing.T) {
 			extractPath := filepath.Join(tempDir, "extract")
 
 			// Create archive with malicious symlink
-			err := createTestArchiveWithSymlink(archivePath, tt.linkname, tt.target)
+			f, err := os.Create(archivePath)
 			if err != nil {
-				t.Fatalf("Failed to create test archive: %v", err)
+				t.Fatalf("Failed to create archive: %v", err)
 			}
+			defer f.Close()
+
+			gw := gzip.NewWriter(f)
+			defer gw.Close()
+			tw := tar.NewWriter(gw)
+			defer tw.Close()
+
+			// Create all parent directories for the symlink
+			parts := strings.Split(tt.linkname, "/")
+			for i := 0; i < len(parts)-1; i++ {
+				dirPath := strings.Join(parts[:i+1], "/")
+				if err := tw.WriteHeader(&tar.Header{
+					Name:     dirPath + "/",
+					Mode:     0755,
+					Typeflag: tar.TypeDir,
+				}); err != nil {
+					t.Fatalf("Failed to write directory header: %v", err)
+				}
+			}
+
+			// Create the symlink
+			if err := tw.WriteHeader(&tar.Header{
+				Name:     tt.linkname,
+				Linkname: tt.target,
+				Typeflag: tar.TypeSymlink,
+			}); err != nil {
+				t.Fatalf("Failed to write symlink header: %v", err)
+			}
+
+			tw.Close()
+			gw.Close()
+			f.Close()
+
+			// Try to extract
+			err = ExtractTarGz(archivePath, extractPath)
+
+			if tt.shouldError {
+				if err == nil {
+					t.Error("Expected error but got none")
+				} else if !strings.Contains(err.Error(), tt.errorContains) {
+					t.Errorf("Error %q should contain %q", err.Error(), tt.errorContains)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error but got: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestExtractTarGz_MaliciousSymlinks_Extended(t *testing.T) {
+	tests := []struct {
+		name          string
+		linkname      string
+		target        string
+		shouldError   bool
+		errorContains string
+	}{
+		{
+			name:          "symlink name escapes directory",
+			linkname:      "../evil-link",
+			target:        "anything.txt",
+			shouldError:   true,
+			errorContains: "escapes",
+		},
+		{
+			name:          "symlink name with multiple dot-dots",
+			linkname:      "../../evil-link",
+			target:        "target.txt",
+			shouldError:   true,
+			errorContains: "outside",
+		},
+		{
+			name:          "symlink target with single dot-dot at boundary",
+			linkname:      "link.txt",
+			target:        "../outside.txt",
+			shouldError:   true,
+			errorContains: "escapes",
+		},
+		{
+			name:          "symlink target with two dot-dots at boundary",
+			linkname:      "subdir/link.txt",
+			target:        "../../outside.txt",
+			shouldError:   true,
+			errorContains: "escapes",
+		},
+		{
+			name:          "deeply nested symlink escaping by one level",
+			linkname:      "a/b/c/d/link.txt",
+			target:        "../../../../../outside.txt",
+			shouldError:   true,
+			errorContains: "escapes",
+		},
+		{
+			name:        "deeply nested symlink just at boundary",
+			linkname:    "a/b/c/link.txt",
+			target:      "../../../safe.txt",
+			shouldError: false,
+		},
+		{
+			name:          "symlink with mixed path separators attempting escape",
+			linkname:      "dir/link.txt",
+			target:        "../../../etc/passwd",
+			shouldError:   true,
+			errorContains: "escapes",
+		},
+		{
+			name:          "symlink in root with single dot-dot escape",
+			linkname:      "link.txt",
+			target:        "../outside",
+			shouldError:   true,
+			errorContains: "escapes",
+		},
+		{
+			name:        "symlink with complex relative path staying inside",
+			linkname:    "a/b/link.txt",
+			target:      "../c/target.txt",
+			shouldError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			archivePath := filepath.Join(tempDir, "test.tar.gz")
+			extractPath := filepath.Join(tempDir, "extract")
+
+			// Create archive with the symlink
+			f, err := os.Create(archivePath)
+			if err != nil {
+				t.Fatalf("Failed to create archive: %v", err)
+			}
+			defer f.Close()
+
+			gw := gzip.NewWriter(f)
+			defer gw.Close()
+			tw := tar.NewWriter(gw)
+			defer tw.Close()
+
+			// Create all parent directories for the symlink
+			parts := strings.Split(tt.linkname, "/")
+			for i := 0; i < len(parts)-1; i++ {
+				dirPath := strings.Join(parts[:i+1], "/")
+				if err := tw.WriteHeader(&tar.Header{
+					Name:     dirPath + "/",
+					Mode:     0755,
+					Typeflag: tar.TypeDir,
+				}); err != nil {
+					t.Fatalf("Failed to write directory header: %v", err)
+				}
+			}
+
+			// Create the symlink
+			if err := tw.WriteHeader(&tar.Header{
+				Name:     tt.linkname,
+				Linkname: tt.target,
+				Typeflag: tar.TypeSymlink,
+			}); err != nil {
+				t.Fatalf("Failed to write symlink header: %v", err)
+			}
+
+			tw.Close()
+			gw.Close()
+			f.Close()
 
 			// Try to extract
 			err = ExtractTarGz(archivePath, extractPath)

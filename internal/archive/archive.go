@@ -21,14 +21,14 @@ func isSafeSymlinkTarget(symlinkPath, linkname, destPath string) (bool, error) {
 	// 1. Validate the symlink location itself resolves within destPath
 	resolvedSymlinkPath, err := filepath.EvalSymlinks(filepath.Dir(symlinkPath))
 	if err != nil {
-		// If parent directory doesn't exist yet or can't be resolved, use the path as-is
+		// If parent directory doesn't exist yet or can't be resolved, use the parent directory path as-is
 		resolvedSymlinkPath = filepath.Dir(symlinkPath)
 	}
 	resolvedSymlinkPath = filepath.Join(resolvedSymlinkPath, filepath.Base(symlinkPath))
 
 	cleanDestPath := filepath.Clean(destPath)
-	relToRoot, err := filepath.Rel(cleanDestPath, filepath.Clean(resolvedSymlinkPath))
-	if err != nil || strings.HasPrefix(filepath.Clean(relToRoot), "..") {
+	relSymlinkPath, err := filepath.Rel(cleanDestPath, filepath.Clean(resolvedSymlinkPath))
+	if err != nil || strings.HasPrefix(relSymlinkPath, "..") {
 		return false, fmt.Errorf("symlink escapes destination: %s", symlinkPath)
 	}
 
@@ -44,7 +44,7 @@ func isSafeSymlinkTarget(symlinkPath, linkname, destPath string) (bool, error) {
 	}
 
 	relTarget, err := filepath.Rel(cleanDestPath, resolvedTarget)
-	if err != nil || strings.HasPrefix(filepath.Clean(relTarget), "..") {
+	if err != nil || strings.HasPrefix(relTarget, "..") {
 		return false, fmt.Errorf("symlink target escapes destination: %s -> %s", symlinkPath, linkname)
 	}
 
@@ -149,11 +149,16 @@ func ExtractTarGz(srcPath, destPath string) error {
 		case tar.TypeSymlink:
 			// Securely create symbolic link after validating both symlink location and target
 			safe, err := isSafeSymlinkTarget(fullPath, header.Linkname, resolvedDestPath)
-			if !safe || err != nil {
-				if err != nil {
-					return err
-				}
+			if err != nil {
+				return err
+			}
+			if !safe {
 				return fmt.Errorf("symlink target escapes extraction directory: %s -> %s", fullPath, header.Linkname)
+			}
+			// Ensure parent directory exists before creating the symlink
+			symlinkDir := filepath.Dir(fullPath)
+			if err := os.MkdirAll(symlinkDir, 0755); err != nil {
+				return fmt.Errorf("failed to create directory for symlink %s: %v", fullPath, err)
 			}
 			if err := os.Symlink(header.Linkname, fullPath); err != nil {
 				return fmt.Errorf("failed to create symlink %s: %v", fullPath, err)
