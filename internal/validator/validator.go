@@ -88,6 +88,15 @@ func New(githubAPI *api.GitHubAPI) *MigrationValidator {
 
 // ValidateMigration performs the migration validation logic and returns results
 func (mv *MigrationValidator) ValidateMigration(sourceOwner, sourceRepo, targetOwner, targetRepo string) ([]ValidationResult, error) {
+	// Validate access to both repositories before starting expensive operations
+	fmt.Println("Validating repository access...")
+	if err := mv.api.ValidateRepoAccess(api.SourceClient, sourceOwner, sourceRepo); err != nil {
+		return nil, fmt.Errorf("cannot access source repository %s/%s: %w", sourceOwner, sourceRepo, err)
+	}
+	if err := mv.api.ValidateRepoAccess(api.TargetClient, targetOwner, targetRepo); err != nil {
+		return nil, fmt.Errorf("cannot access target repository %s/%s: %w", targetOwner, targetRepo, err)
+	}
+
 	fmt.Println("Starting migration validation...")
 	fmt.Printf("Source: %s/%s | Target: %s/%s\n", sourceOwner, sourceRepo, targetOwner, targetRepo)
 
@@ -270,6 +279,10 @@ func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.
 
 // RetrieveSourceData is a public wrapper for retrieveSource for use by the export package
 func (mv *MigrationValidator) RetrieveSourceData(owner, name string, spinner *pterm.SpinnerPrinter) error {
+	// Validate access to source repository before starting
+	if err := mv.api.ValidateRepoAccess(api.SourceClient, owner, name); err != nil {
+		return fmt.Errorf("cannot access source repository %s/%s: %w", owner, name, err)
+	}
 	return mv.retrieveSource(owner, name, spinner)
 }
 
@@ -297,6 +310,12 @@ func (mv *MigrationValidator) ValidateFromExport(targetOwner, targetRepo string)
 	// Normalize source data to prevent nil pointer dereferences
 	if mv.SourceData.PRs == nil {
 		mv.SourceData.PRs = &api.PRCounts{Total: 0, Open: 0, Merged: 0, Closed: 0}
+	}
+
+	// Validate access to target repository before starting
+	fmt.Println("Validating repository access...")
+	if err := mv.api.ValidateRepoAccess(api.TargetClient, targetOwner, targetRepo); err != nil {
+		return nil, fmt.Errorf("cannot access target repository %s/%s: %w", targetOwner, targetRepo, err)
 	}
 
 	fmt.Println("Starting migration validation from export...")
