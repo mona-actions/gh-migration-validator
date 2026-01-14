@@ -11,6 +11,46 @@ import (
 	"strings"
 )
 
+// isSafeSymlinkTarget checks if both the symlink and its target will remain within destPath after resolution.
+func isSafeSymlinkTarget(symlinkPath, linkname, destPath string) (bool, error) {
+	// Refuse absolute symlink targets
+	if filepath.IsAbs(linkname) {
+		return false, fmt.Errorf("absolute symlink target not allowed: %s", linkname)
+	}
+
+	// 1. Validate the symlink location itself resolves within destPath
+	resolvedSymlinkPath, err := filepath.EvalSymlinks(filepath.Dir(symlinkPath))
+	if err != nil {
+		// If parent directory doesn't exist yet or can't be resolved, use the parent directory path as-is
+		resolvedSymlinkPath = filepath.Dir(symlinkPath)
+	}
+	resolvedSymlinkPath = filepath.Join(resolvedSymlinkPath, filepath.Base(symlinkPath))
+
+	cleanDestPath := filepath.Clean(destPath)
+	relSymlinkPath, err := filepath.Rel(cleanDestPath, filepath.Clean(resolvedSymlinkPath))
+	if err != nil || strings.HasPrefix(relSymlinkPath, "..") {
+		return false, fmt.Errorf("symlink escapes destination: %s", symlinkPath)
+	}
+
+	// 2. Validate the symlink target (interpreted relative to symlink's parent) resolves within destPath
+	symlinkParent := filepath.Dir(resolvedSymlinkPath)
+	targetPath := filepath.Join(symlinkParent, linkname)
+
+	// Try to resolve the target path; if it doesn't exist yet, clean it
+	resolvedTarget, err := filepath.EvalSymlinks(targetPath)
+	if err != nil {
+		// Target doesn't exist yet, use cleaned path
+		resolvedTarget = filepath.Clean(targetPath)
+	}
+
+	relTarget, err := filepath.Rel(cleanDestPath, resolvedTarget)
+	if err != nil || strings.HasPrefix(relTarget, "..") {
+		return false, fmt.Errorf("symlink target escapes destination: %s -> %s", symlinkPath, linkname)
+	}
+
+	return true, nil
+}
+
 // ExtractTarGz extracts a .tar.gz file to the specified destination directory
 func ExtractTarGz(srcPath, destPath string) error {
 	// Open the source file
@@ -35,6 +75,15 @@ func ExtractTarGz(srcPath, destPath string) error {
 		return fmt.Errorf("failed to create destination directory: %v", err)
 	}
 
+	// Resolve destPath to handle any symlinks in the path itself
+	// This ensures consistent path comparisons throughout extraction
+	resolvedDestPath, err := filepath.EvalSymlinks(destPath)
+	if err != nil {
+		// If we can't resolve, use the original (shouldn't happen after MkdirAll)
+		resolvedDestPath = destPath
+	}
+	cleanDestPath := filepath.Clean(resolvedDestPath)
+
 	// Extract files
 	for {
 		header, err := tarReader.Next()
@@ -50,17 +99,37 @@ func ExtractTarGz(srcPath, destPath string) error {
 			continue
 		}
 
-		// Construct the full path for the file
-		fullPath := filepath.Join(destPath, header.Name)
+		// Reject absolute paths in archives
+		if filepath.IsAbs(header.Name) {
+			return fmt.Errorf("invalid file path: %s (absolute paths not allowed)", header.Name)
+		}
+
+		// Construct the full path for the file using the resolved destination path
+		fullPath := filepath.Join(resolvedDestPath, header.Name)
 
 		// Security check: ensure the file path is within the destination directory
-		cleanDestPath := filepath.Clean(destPath)
 		cleanFullPath := filepath.Clean(fullPath)
 
 		// Check if the clean full path is within the destination directory
 		// Also prevent files from overwriting the destination directory itself
 		if !strings.HasPrefix(cleanFullPath, cleanDestPath+string(os.PathSeparator)) {
 			return fmt.Errorf("invalid file path: %s (resolved to %s, outside %s)", header.Name, cleanFullPath, cleanDestPath)
+		}
+
+		// Additional security check: resolve symlinks in the path to prevent escapes via existing symlinks
+		parentDir := filepath.Dir(fullPath)
+		resolvedParent, err := filepath.EvalSymlinks(parentDir)
+		if err != nil {
+			// Parent doesn't exist yet - use the cleaned path for validation
+			resolvedParent = filepath.Clean(parentDir)
+		}
+		resolvedFullPath := filepath.Join(resolvedParent, filepath.Base(fullPath))
+
+		// Make sure the resolved path is still within destPath
+		cleanResolvedPath := filepath.Clean(resolvedFullPath)
+		if !strings.HasPrefix(cleanResolvedPath, cleanDestPath+string(os.PathSeparator)) &&
+			cleanResolvedPath != cleanDestPath {
+			return fmt.Errorf("path escapes extraction directory after symlink resolution: %s", header.Name)
 		}
 
 		// Handle different file types
@@ -78,7 +147,19 @@ func ExtractTarGz(srcPath, destPath string) error {
 			}
 
 		case tar.TypeSymlink:
-			// Create symbolic link
+			// Securely create symbolic link after validating both symlink location and target
+			safe, err := isSafeSymlinkTarget(fullPath, header.Linkname, resolvedDestPath)
+			if err != nil {
+				return err
+			}
+			if !safe {
+				return fmt.Errorf("symlink target escapes extraction directory: %s -> %s", fullPath, header.Linkname)
+			}
+			// Ensure parent directory exists before creating the symlink
+			symlinkDir := filepath.Dir(fullPath)
+			if err := os.MkdirAll(symlinkDir, 0755); err != nil {
+				return fmt.Errorf("failed to create directory for symlink %s: %v", fullPath, err)
+			}
 			if err := os.Symlink(header.Linkname, fullPath); err != nil {
 				return fmt.Errorf("failed to create symlink %s: %v", fullPath, err)
 			}
