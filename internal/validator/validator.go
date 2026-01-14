@@ -98,6 +98,9 @@ func (mv *MigrationValidator) ValidateMigration(sourceOwner, sourceRepo, targetO
 		return nil, fmt.Errorf("cannot access target repository %s/%s: %w", targetOwner, targetRepo, err)
 	}
 
+	// Check rate limits before starting - warn if low
+	mv.checkAndWarnRateLimits()
+
 	fmt.Println("Starting migration validation...")
 	fmt.Printf("Source: %s/%s | Target: %s/%s\n", sourceOwner, sourceRepo, targetOwner, targetRepo)
 
@@ -155,6 +158,25 @@ func (mv *MigrationValidator) ValidateMigration(sourceOwner, sourceRepo, targetO
 
 	fmt.Println("Migration validation completed!")
 	return results, nil
+}
+
+// checkAndWarnRateLimits checks rate limits for both source and target clients
+// and logs a warning if either is low (configurable via RATE_LIMIT_THRESHOLD env var, default 50)
+func (mv *MigrationValidator) checkAndWarnRateLimits() {
+	threshold := viper.GetInt("RATE_LIMIT_THRESHOLD")
+	if threshold == 0 {
+		threshold = 50 // default
+	}
+
+	sourceRL, sourceErr := mv.api.GetRateLimitStatus(api.SourceClient)
+	targetRL, targetErr := mv.api.GetRateLimitStatus(api.TargetClient)
+
+	if sourceErr == nil {
+		output.LogRateLimitWarning("Source", sourceRL.Remaining, sourceRL.ResetAt, threshold)
+	}
+	if targetErr == nil {
+		output.LogRateLimitWarning("Target", targetRL.Remaining, targetRL.ResetAt, threshold)
+	}
 }
 
 // retrieveSource retrieves all repository data from the source repository
@@ -319,6 +341,9 @@ func (mv *MigrationValidator) ValidateFromExport(targetOwner, targetRepo string)
 	if err := mv.api.ValidateRepoAccess(api.TargetClient, targetOwner, targetRepo); err != nil {
 		return nil, fmt.Errorf("cannot access target repository %s/%s: %w", targetOwner, targetRepo, err)
 	}
+
+	// Check rate limits before starting - warn if low
+	mv.checkAndWarnRateLimits()
 
 	fmt.Println("Starting migration validation from export...")
 	fmt.Printf("Source: %s/%s (from export) | Target: %s/%s\n",

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -283,6 +282,40 @@ func (api *GitHubAPI) ValidateRepoAccess(clientType ClientType, owner, name stri
 	return nil
 }
 
+// RateLimitInfo contains information about current rate limit status
+type RateLimitInfo struct {
+	Remaining int
+	ResetAt   time.Time
+}
+
+// GetRateLimitStatus returns the current rate limit status for the specified client
+func (api *GitHubAPI) GetRateLimitStatus(clientType ClientType) (*RateLimitInfo, error) {
+	ctx := context.Background()
+
+	var query struct {
+		RateLimit struct {
+			Remaining int
+			ResetAt   githubv4.DateTime
+		}
+	}
+
+	client, clientName, err := api.getGraphQLClient(clientType)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get %s client: %w", clientName, err)
+	}
+
+	// Use underlying client directly
+	err = client.client.Query(ctx, &query, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query %s rate limit: %w", clientName, err)
+	}
+
+	return &RateLimitInfo{
+		Remaining: query.RateLimit.Remaining,
+		ResetAt:   query.RateLimit.ResetAt.Time,
+	}, nil
+}
+
 func (c *RateLimitAwareGraphQLClient) Query(ctx context.Context, q interface{}, variables map[string]interface{}) error {
 	var rateLimitQuery struct {
 		RateLimit struct {
@@ -299,16 +332,12 @@ func (c *RateLimitAwareGraphQLClient) Query(ctx context.Context, q interface{}, 
 
 		if rateLimitQuery.RateLimit.Remaining > 0 {
 			// Proceed with the actual query
-			err := c.client.Query(ctx, q, variables)
-			if err != nil {
-				return err
-			}
-			return nil
-		} else {
-			// Sleep until rate limit resets
-			log.Println("Rate limit exceeded, sleeping until reset at:", rateLimitQuery.RateLimit.ResetAt.Time)
-			time.Sleep(time.Until(rateLimitQuery.RateLimit.ResetAt.Time))
+			return c.client.Query(ctx, q, variables)
 		}
+
+		// Rate limited - wait silently until reset
+		sleepDuration := time.Until(rateLimitQuery.RateLimit.ResetAt.Time)
+		time.Sleep(sleepDuration)
 	}
 }
 

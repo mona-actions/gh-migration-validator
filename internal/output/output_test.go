@@ -4,9 +4,106 @@ import (
 	"bytes"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/pterm/pterm"
 )
+
+func TestLogRateLimitWarning_AboveThreshold(t *testing.T) {
+	// Capture output
+	var buf bytes.Buffer
+	originalLogger := pterm.DefaultLogger
+	pterm.DefaultLogger = *pterm.DefaultLogger.WithWriter(&buf)
+	defer func() { pterm.DefaultLogger = originalLogger }()
+
+	// Should be a no-op when remaining >= threshold
+	LogRateLimitWarning("Source", 100, time.Now().Add(5*time.Minute), 50)
+
+	if buf.Len() > 0 {
+		t.Errorf("Expected no output when remaining >= threshold, got: %s", buf.String())
+	}
+}
+
+func TestLogRateLimitWarning_AtThreshold(t *testing.T) {
+	// Capture output
+	var buf bytes.Buffer
+	originalLogger := pterm.DefaultLogger
+	pterm.DefaultLogger = *pterm.DefaultLogger.WithWriter(&buf)
+	defer func() { pterm.DefaultLogger = originalLogger }()
+
+	// Should be a no-op when remaining == threshold
+	LogRateLimitWarning("Source", 50, time.Now().Add(5*time.Minute), 50)
+
+	if buf.Len() > 0 {
+		t.Errorf("Expected no output when remaining == threshold, got: %s", buf.String())
+	}
+}
+
+func TestLogRateLimitWarning_BelowThreshold(t *testing.T) {
+	// Capture output
+	var buf bytes.Buffer
+	originalLogger := pterm.DefaultLogger
+	pterm.DefaultLogger = *pterm.DefaultLogger.WithWriter(&buf)
+	defer func() { pterm.DefaultLogger = originalLogger }()
+
+	resetTime := time.Now().Add(5 * time.Minute)
+	LogRateLimitWarning("Source", 25, resetTime, 50)
+
+	output := buf.String()
+
+	// Verify warning is logged
+	if output == "" {
+		t.Error("Expected warning output when remaining < threshold, got empty string")
+	}
+
+	// Should contain WARN level
+	if !bytes.Contains(buf.Bytes(), []byte("WARN")) {
+		t.Errorf("Expected WARN level in output, got: %s", output)
+	}
+
+	// Should contain client name
+	if !bytes.Contains(buf.Bytes(), []byte("Source")) {
+		t.Errorf("Expected client name in output, got: %s", output)
+	}
+
+	// Should contain "rate limit low" message
+	if !bytes.Contains(buf.Bytes(), []byte("rate limit low")) {
+		t.Errorf("Expected 'rate limit low' in output, got: %s", output)
+	}
+
+	// Should contain "fetching data" message (part of the warning text)
+	if !bytes.Contains(buf.Bytes(), []byte("fetching data")) {
+		t.Errorf("Expected 'fetching data' in output, got: %s", output)
+	}
+
+	// Should contain remaining count
+	if !bytes.Contains(buf.Bytes(), []byte("25")) {
+		t.Errorf("Expected remaining count '25' in output, got: %s", output)
+	}
+}
+
+func TestLogRateLimitWarning_ZeroRemaining(t *testing.T) {
+	// Capture output
+	var buf bytes.Buffer
+	originalLogger := pterm.DefaultLogger
+	pterm.DefaultLogger = *pterm.DefaultLogger.WithWriter(&buf)
+	defer func() { pterm.DefaultLogger = originalLogger }()
+
+	resetTime := time.Now().Add(10 * time.Minute)
+	LogRateLimitWarning("Target", 0, resetTime, 50)
+
+	output := buf.String()
+
+	// Verify warning is logged
+	if output == "" {
+		t.Error("Expected warning output when remaining is 0, got empty string")
+	}
+
+	// Should contain Target client name
+	if !bytes.Contains(buf.Bytes(), []byte("Target")) {
+		t.Errorf("Expected 'Target' in output, got: %s", output)
+	}
+}
 
 func TestLogAPIErrors_EmptyMessages(t *testing.T) {
 	// Should be a no-op with empty slice - no panic, no output
