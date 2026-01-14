@@ -252,6 +252,37 @@ func (api *GitHubAPI) getRESTClient(clientType ClientType) (*github.Client, stri
 	}
 }
 
+// ValidateRepoAccess validates that the client can access the specified repository
+// This performs a lightweight GraphQL query to verify authentication, SAML authorization,
+// and repository access permissions before attempting more expensive operations
+func (api *GitHubAPI) ValidateRepoAccess(clientType ClientType, owner, name string) error {
+	ctx := context.Background()
+
+	var query struct {
+		Repository struct {
+			ID string
+		} `graphql:"repository(owner: $owner, name: $name)"`
+	}
+
+	variables := map[string]interface{}{
+		"owner": githubv4.String(owner),
+		"name":  githubv4.String(name),
+	}
+
+	client, clientName, err := api.getGraphQLClient(clientType)
+	if err != nil {
+		return fmt.Errorf("failed to get %s client: %w", clientName, err)
+	}
+
+	// Use the underlying client directly to skip rate limit check for this simple validation
+	err = client.client.Query(ctx, &query, variables)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (c *RateLimitAwareGraphQLClient) Query(ctx context.Context, q interface{}, variables map[string]interface{}) error {
 	var rateLimitQuery struct {
 		RateLimit struct {
@@ -265,8 +296,6 @@ func (c *RateLimitAwareGraphQLClient) Query(ctx context.Context, q interface{}, 
 		if err := c.client.Query(ctx, &rateLimitQuery, nil); err != nil {
 			return err
 		}
-
-		//log.Println("Rate limit remaining:", rateLimitQuery.RateLimit.Remaining)
 
 		if rateLimitQuery.RateLimit.Remaining > 0 {
 			// Proceed with the actual query

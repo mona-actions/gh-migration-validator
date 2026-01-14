@@ -1256,3 +1256,114 @@ type mockRoundTripper struct {
 func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	return m.roundTripFunc(req)
 }
+
+func TestValidateRepoAccess(t *testing.T) {
+	// Store original values
+	originalValues := map[string]interface{}{
+		"SOURCE_TOKEN": viper.Get("SOURCE_TOKEN"),
+		"TARGET_TOKEN": viper.Get("TARGET_TOKEN"),
+	}
+
+	// Restore original values after test
+	defer func() {
+		for key, value := range originalValues {
+			viper.Set(key, value)
+		}
+	}()
+
+	viper.Set("SOURCE_TOKEN", "test-source-token")
+	viper.Set("TARGET_TOKEN", "test-target-token")
+
+	tests := []struct {
+		name       string
+		clientType ClientType
+		owner      string
+		repo       string
+		wantError  bool
+	}{
+		{
+			name:       "source client valid request",
+			clientType: SourceClient,
+			owner:      "testowner",
+			repo:       "testrepo",
+			wantError:  true, // Will error in test due to no real connection
+		},
+		{
+			name:       "target client valid request",
+			clientType: TargetClient,
+			owner:      "testowner",
+			repo:       "testrepo",
+			wantError:  true, // Will error in test due to no real connection
+		},
+		{
+			name:       "invalid client type",
+			clientType: ClientType(999),
+			owner:      "testowner",
+			repo:       "testrepo",
+			wantError:  true,
+		},
+		{
+			name:       "empty owner",
+			clientType: SourceClient,
+			owner:      "",
+			repo:       "testrepo",
+			wantError:  true,
+		},
+		{
+			name:       "empty repo",
+			clientType: SourceClient,
+			owner:      "testowner",
+			repo:       "",
+			wantError:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			api, err := NewGitHubAPI()
+			if err != nil {
+				t.Fatalf("Failed to create API: %v", err)
+			}
+
+			err = api.ValidateRepoAccess(tt.clientType, tt.owner, tt.repo)
+
+			if (err != nil) != tt.wantError {
+				t.Errorf("ValidateRepoAccess() error = %v, wantError %v", err, tt.wantError)
+			}
+		})
+	}
+}
+
+func TestValidateRepoAccess_InvalidClientType(t *testing.T) {
+	// Store original values
+	originalValues := map[string]interface{}{
+		"SOURCE_TOKEN": viper.Get("SOURCE_TOKEN"),
+		"TARGET_TOKEN": viper.Get("TARGET_TOKEN"),
+	}
+
+	// Restore original values after test
+	defer func() {
+		for key, value := range originalValues {
+			viper.Set(key, value)
+		}
+	}()
+
+	viper.Set("SOURCE_TOKEN", "test-source-token")
+	viper.Set("TARGET_TOKEN", "test-target-token")
+
+	api, err := NewGitHubAPI()
+	if err != nil {
+		t.Fatalf("Failed to create API: %v", err)
+	}
+
+	// Test with invalid client type - should fail when getting client
+	err = api.ValidateRepoAccess(ClientType(999), "owner", "repo")
+	if err == nil {
+		t.Error("ValidateRepoAccess() should have failed with invalid client type")
+	}
+
+	expectedErrMsg := "invalid client type"
+	if !strings.Contains(err.Error(), expectedErrMsg) {
+		t.Errorf("ValidateRepoAccess() error = %v, want error containing %q", err, expectedErrMsg)
+	}
+}
