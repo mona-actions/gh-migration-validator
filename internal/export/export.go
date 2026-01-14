@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"mona-actions/gh-migration-validator/internal/migrationarchive"
+	"mona-actions/gh-migration-validator/internal/output"
 	"mona-actions/gh-migration-validator/internal/validator"
 	"os"
 	"path/filepath"
@@ -32,7 +33,11 @@ func ExportSourceData(mv *validator.MigrationValidator, owner, repoName, format,
 	spinner, _ := pterm.DefaultSpinner.Start(fmt.Sprintf("Preparing to export data from %s/%s...", owner, repoName))
 
 	// Use the validator to retrieve source repository data
-	err := mv.RetrieveSourceData(owner, repoName, spinner)
+	errorMsgs, err := mv.RetrieveSourceData(owner, repoName, spinner)
+
+	// Log any API errors (safe to call after spinner finishes)
+	output.LogAPIErrors(errorMsgs, owner, repoName, err)
+
 	if err != nil {
 		return fmt.Errorf("failed to retrieve source data for export: %w", err)
 	}
