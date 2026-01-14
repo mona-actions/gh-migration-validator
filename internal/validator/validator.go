@@ -160,8 +160,7 @@ func (mv *MigrationValidator) ValidateMigration(sourceOwner, sourceRepo, targetO
 	return results, nil
 }
 
-// checkAndWarnRateLimits checks rate limits for both source and target clients
-// and logs a warning if either is low (configurable via RATE_LIMIT_THRESHOLD env var, default 50)
+// checks rate limits for both source and target clients(configurable via RATE_LIMIT_THRESHOLD env var, default 50).
 func (mv *MigrationValidator) checkAndWarnRateLimits() {
 	threshold := viper.GetInt("RATE_LIMIT_THRESHOLD")
 	if threshold == 0 {
@@ -171,17 +170,23 @@ func (mv *MigrationValidator) checkAndWarnRateLimits() {
 	sourceRL, sourceErr := mv.api.GetRateLimitStatus(api.SourceClient)
 	targetRL, targetErr := mv.api.GetRateLimitStatus(api.TargetClient)
 
-	if sourceErr == nil {
+	if sourceErr != nil {
+		pterm.DefaultLogger.Warn("Source API rate limit check failed", pterm.DefaultLogger.Args("error", sourceErr.Error()))
+	} else {
 		output.LogRateLimitWarning("Source", sourceRL.Remaining, sourceRL.ResetAt, threshold)
 	}
-	if targetErr == nil {
+
+	if targetErr != nil {
+		pterm.DefaultLogger.Warn("Target API rate limit check failed", pterm.DefaultLogger.Args("error", targetErr.Error()))
+	} else {
 		output.LogRateLimitWarning("Target", targetRL.Remaining, targetRL.ResetAt, threshold)
 	}
 }
 
-// retrieveSource retrieves all repository data from the source repository
-// Handles individual API failures gracefully by logging errors and continuing with default values
-// Returns a slice of error messages for display after spinners finish, and an error if all requests failed
+// retrieveSource retrieves all repository data from the source repository.
+// Returns a slice of error messages for display after spinners finish, and an error if all requests failed.
+// An empty slice indicates all requests succeeded; callers should only expect error messages when
+// partial failures occur (some requests succeeded, some failed).
 func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.SpinnerPrinter) ([]string, error) {
 	startTime := time.Now()
 	var failedRequests []string
@@ -370,9 +375,11 @@ func (mv *MigrationValidator) ValidateFromExport(targetOwner, targetRepo string)
 	return results, nil
 }
 
-// retrieveTarget retrieves all repository data from the target repository
-// Handles individual API failures gracefully by logging errors and continuing with default values
-// Returns a slice of error messages for display after spinners finish, and an error if all requests failed
+// retrieveTarget retrieves all repository data from the target repository.
+// Handles individual API failures gracefully by logging errors and continuing with default values.
+// Returns a slice of error messages for display after spinners finish, and an error if all requests failed.
+// An empty slice indicates all requests succeeded; callers should only expect error messages when
+// partial failures occur (some requests succeeded, some failed).
 func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.SpinnerPrinter) ([]string, error) {
 	startTime := time.Now()
 	var failedRequests []string
