@@ -160,12 +160,11 @@ func (mv *MigrationValidator) ValidateMigration(sourceOwner, sourceRepo, targetO
 	return results, nil
 }
 
-// checks rate limits for both source and target clients(configurable via RATE_LIMIT_THRESHOLD env var, default 50).
+// checks rate limits for both source and target clients (configurable via RATE_LIMIT_THRESHOLD env var, default 50).
+// Set threshold to 0 to disable rate limit warnings.
 func (mv *MigrationValidator) checkAndWarnRateLimits() {
+	viper.SetDefault("RATE_LIMIT_THRESHOLD", 50)
 	threshold := viper.GetInt("RATE_LIMIT_THRESHOLD")
-	if threshold == 0 {
-		threshold = 50 // default
-	}
 
 	sourceRL, sourceErr := mv.api.GetRateLimitStatus(api.SourceClient)
 	targetRL, targetErr := mv.api.GetRateLimitStatus(api.TargetClient)

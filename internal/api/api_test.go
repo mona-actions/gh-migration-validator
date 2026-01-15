@@ -711,8 +711,13 @@ func TestGetIssueCount(t *testing.T) {
 
 			count, err := api.GetIssueCount(tt.clientType, tt.owner, tt.repo)
 
-			if (err != nil) != tt.wantError {
-				t.Errorf("GetIssueCount() error = %v, wantError %v", err, tt.wantError)
+			gotError := err != nil
+			if gotError && !tt.wantError {
+				t.Errorf("GetIssueCount() unexpected error: %v", err)
+				return
+			}
+			if !gotError && tt.wantError {
+				t.Error("GetIssueCount() expected error, got nil")
 				return
 			}
 
@@ -767,8 +772,13 @@ func TestGetPRCounts(t *testing.T) {
 
 			counts, err := api.GetPRCounts(tt.clientType, tt.owner, tt.repo)
 
-			if (err != nil) != tt.wantError {
-				t.Errorf("GetPRCounts() error = %v, wantError %v", err, tt.wantError)
+			gotError := err != nil
+			if gotError && !tt.wantError {
+				t.Errorf("GetPRCounts() unexpected error: %v", err)
+				return
+			}
+			if !gotError && tt.wantError {
+				t.Error("GetPRCounts() expected error, got nil")
 				return
 			}
 
@@ -828,8 +838,13 @@ func TestGetTagCount(t *testing.T) {
 
 			count, err := api.GetTagCount(tt.clientType, tt.owner, tt.repo)
 
-			if (err != nil) != tt.wantError {
-				t.Errorf("GetTagCount() error = %v, wantError %v", err, tt.wantError)
+			gotError := err != nil
+			if gotError && !tt.wantError {
+				t.Errorf("GetTagCount() unexpected error: %v", err)
+				return
+			}
+			if !gotError && tt.wantError {
+				t.Error("GetTagCount() expected error, got nil")
 				return
 			}
 
@@ -884,8 +899,13 @@ func TestGetReleaseCount(t *testing.T) {
 
 			count, err := api.GetReleaseCount(tt.clientType, tt.owner, tt.repo)
 
-			if (err != nil) != tt.wantError {
-				t.Errorf("GetReleaseCount() error = %v, wantError %v", err, tt.wantError)
+			gotError := err != nil
+			if gotError && !tt.wantError {
+				t.Errorf("GetReleaseCount() unexpected error: %v", err)
+				return
+			}
+			if !gotError && tt.wantError {
+				t.Error("GetReleaseCount() expected error, got nil")
 				return
 			}
 
@@ -939,8 +959,13 @@ func TestGetCommitCount(t *testing.T) {
 
 			count, err := api.GetCommitCount(tt.clientType, tt.owner, tt.repo)
 
-			if (err != nil) != tt.wantError {
-				t.Errorf("GetCommitCount() error = %v, wantError %v", err, tt.wantError)
+			gotError := err != nil
+			if gotError && !tt.wantError {
+				t.Errorf("GetCommitCount() unexpected error: %v", err)
+				return
+			}
+			if !gotError && tt.wantError {
+				t.Error("GetCommitCount() expected error, got nil")
 				return
 			}
 
@@ -994,8 +1019,13 @@ func TestGetLatestCommitHash(t *testing.T) {
 
 			hash, err := api.GetLatestCommitHash(tt.clientType, tt.owner, tt.repo)
 
-			if (err != nil) != tt.wantError {
-				t.Errorf("GetLatestCommitHash() error = %v, wantError %v", err, tt.wantError)
+			gotError := err != nil
+			if gotError && !tt.wantError {
+				t.Errorf("GetLatestCommitHash() unexpected error: %v", err)
+				return
+			}
+			if !gotError && tt.wantError {
+				t.Error("GetLatestCommitHash() expected error, got nil")
 				return
 			}
 
@@ -1088,8 +1118,13 @@ func TestGetBranchProtectionRulesCount(t *testing.T) {
 
 			count, err := api.GetBranchProtectionRulesCount(tt.clientType, tt.owner, tt.repo)
 
-			if (err != nil) != tt.wantError {
-				t.Errorf("GetBranchProtectionRulesCount() error = %v, wantError %v", err, tt.wantError)
+			gotError := err != nil
+			if gotError && !tt.wantError {
+				t.Errorf("GetBranchProtectionRulesCount() unexpected error: %v", err)
+				return
+			}
+			if !gotError && tt.wantError {
+				t.Error("GetBranchProtectionRulesCount() expected error, got nil")
 				return
 			}
 
@@ -1327,8 +1362,12 @@ func TestValidateRepoAccess(t *testing.T) {
 
 			err = api.ValidateRepoAccess(tt.clientType, tt.owner, tt.repo)
 
-			if (err != nil) != tt.wantError {
-				t.Errorf("ValidateRepoAccess() error = %v, wantError %v", err, tt.wantError)
+			gotError := err != nil
+			if gotError && !tt.wantError {
+				t.Errorf("ValidateRepoAccess() unexpected error: %v", err)
+			}
+			if !gotError && tt.wantError {
+				t.Error("ValidateRepoAccess() expected error, got nil")
 			}
 		})
 	}
@@ -1416,8 +1455,12 @@ func TestGetRateLimitStatus(t *testing.T) {
 
 			info, err := api.GetRateLimitStatus(tt.clientType)
 
-			if (err != nil) != tt.wantError {
-				t.Errorf("GetRateLimitStatus() error = %v, wantError %v", err, tt.wantError)
+			gotError := err != nil
+			if gotError && !tt.wantError {
+				t.Errorf("GetRateLimitStatus() unexpected error: %v", err)
+			}
+			if !gotError && tt.wantError {
+				t.Error("GetRateLimitStatus() expected error, got nil")
 			}
 
 			// If no error expected, verify the result structure
