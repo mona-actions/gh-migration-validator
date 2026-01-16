@@ -711,8 +711,13 @@ func TestGetIssueCount(t *testing.T) {
 
 			count, err := api.GetIssueCount(tt.clientType, tt.owner, tt.repo)
 
-			if (err != nil) != tt.wantError {
-				t.Errorf("GetIssueCount() error = %v, wantError %v", err, tt.wantError)
+			gotError := err != nil
+			if gotError && !tt.wantError {
+				t.Errorf("GetIssueCount() unexpected error: %v", err)
+				return
+			}
+			if !gotError && tt.wantError {
+				t.Error("GetIssueCount() expected error, got nil")
 				return
 			}
 
@@ -767,8 +772,13 @@ func TestGetPRCounts(t *testing.T) {
 
 			counts, err := api.GetPRCounts(tt.clientType, tt.owner, tt.repo)
 
-			if (err != nil) != tt.wantError {
-				t.Errorf("GetPRCounts() error = %v, wantError %v", err, tt.wantError)
+			gotError := err != nil
+			if gotError && !tt.wantError {
+				t.Errorf("GetPRCounts() unexpected error: %v", err)
+				return
+			}
+			if !gotError && tt.wantError {
+				t.Error("GetPRCounts() expected error, got nil")
 				return
 			}
 
@@ -828,8 +838,13 @@ func TestGetTagCount(t *testing.T) {
 
 			count, err := api.GetTagCount(tt.clientType, tt.owner, tt.repo)
 
-			if (err != nil) != tt.wantError {
-				t.Errorf("GetTagCount() error = %v, wantError %v", err, tt.wantError)
+			gotError := err != nil
+			if gotError && !tt.wantError {
+				t.Errorf("GetTagCount() unexpected error: %v", err)
+				return
+			}
+			if !gotError && tt.wantError {
+				t.Error("GetTagCount() expected error, got nil")
 				return
 			}
 
@@ -884,8 +899,13 @@ func TestGetReleaseCount(t *testing.T) {
 
 			count, err := api.GetReleaseCount(tt.clientType, tt.owner, tt.repo)
 
-			if (err != nil) != tt.wantError {
-				t.Errorf("GetReleaseCount() error = %v, wantError %v", err, tt.wantError)
+			gotError := err != nil
+			if gotError && !tt.wantError {
+				t.Errorf("GetReleaseCount() unexpected error: %v", err)
+				return
+			}
+			if !gotError && tt.wantError {
+				t.Error("GetReleaseCount() expected error, got nil")
 				return
 			}
 
@@ -939,8 +959,13 @@ func TestGetCommitCount(t *testing.T) {
 
 			count, err := api.GetCommitCount(tt.clientType, tt.owner, tt.repo)
 
-			if (err != nil) != tt.wantError {
-				t.Errorf("GetCommitCount() error = %v, wantError %v", err, tt.wantError)
+			gotError := err != nil
+			if gotError && !tt.wantError {
+				t.Errorf("GetCommitCount() unexpected error: %v", err)
+				return
+			}
+			if !gotError && tt.wantError {
+				t.Error("GetCommitCount() expected error, got nil")
 				return
 			}
 
@@ -994,8 +1019,13 @@ func TestGetLatestCommitHash(t *testing.T) {
 
 			hash, err := api.GetLatestCommitHash(tt.clientType, tt.owner, tt.repo)
 
-			if (err != nil) != tt.wantError {
-				t.Errorf("GetLatestCommitHash() error = %v, wantError %v", err, tt.wantError)
+			gotError := err != nil
+			if gotError && !tt.wantError {
+				t.Errorf("GetLatestCommitHash() unexpected error: %v", err)
+				return
+			}
+			if !gotError && tt.wantError {
+				t.Error("GetLatestCommitHash() expected error, got nil")
 				return
 			}
 
@@ -1088,8 +1118,13 @@ func TestGetBranchProtectionRulesCount(t *testing.T) {
 
 			count, err := api.GetBranchProtectionRulesCount(tt.clientType, tt.owner, tt.repo)
 
-			if (err != nil) != tt.wantError {
-				t.Errorf("GetBranchProtectionRulesCount() error = %v, wantError %v", err, tt.wantError)
+			gotError := err != nil
+			if gotError && !tt.wantError {
+				t.Errorf("GetBranchProtectionRulesCount() unexpected error: %v", err)
+				return
+			}
+			if !gotError && tt.wantError {
+				t.Error("GetBranchProtectionRulesCount() expected error, got nil")
 				return
 			}
 
@@ -1327,8 +1362,12 @@ func TestValidateRepoAccess(t *testing.T) {
 
 			err = api.ValidateRepoAccess(tt.clientType, tt.owner, tt.repo)
 
-			if (err != nil) != tt.wantError {
-				t.Errorf("ValidateRepoAccess() error = %v, wantError %v", err, tt.wantError)
+			gotError := err != nil
+			if gotError && !tt.wantError {
+				t.Errorf("ValidateRepoAccess() unexpected error: %v", err)
+			}
+			if !gotError && tt.wantError {
+				t.Error("ValidateRepoAccess() expected error, got nil")
 			}
 		})
 	}
@@ -1365,5 +1404,116 @@ func TestValidateRepoAccess_InvalidClientType(t *testing.T) {
 	expectedErrMsg := "invalid client type"
 	if !strings.Contains(err.Error(), expectedErrMsg) {
 		t.Errorf("ValidateRepoAccess() error = %v, want error containing %q", err, expectedErrMsg)
+	}
+}
+
+func TestGetRateLimitStatus(t *testing.T) {
+	// Store original values
+	originalValues := map[string]interface{}{
+		"SOURCE_TOKEN": viper.Get("SOURCE_TOKEN"),
+		"TARGET_TOKEN": viper.Get("TARGET_TOKEN"),
+	}
+
+	// Restore original values after test
+	defer func() {
+		for key, value := range originalValues {
+			viper.Set(key, value)
+		}
+	}()
+
+	viper.Set("SOURCE_TOKEN", "test-source-token")
+	viper.Set("TARGET_TOKEN", "test-target-token")
+
+	tests := []struct {
+		name       string
+		clientType ClientType
+		wantError  bool
+	}{
+		{
+			name:       "source client",
+			clientType: SourceClient,
+			wantError:  true, // Will error in test due to no real connection
+		},
+		{
+			name:       "target client",
+			clientType: TargetClient,
+			wantError:  true, // Will error in test due to no real connection
+		},
+		{
+			name:       "invalid client type",
+			clientType: ClientType(999),
+			wantError:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			api, err := NewGitHubAPI()
+			if err != nil {
+				t.Fatalf("Failed to create API: %v", err)
+			}
+
+			info, err := api.GetRateLimitStatus(tt.clientType)
+
+			gotError := err != nil
+			if gotError && !tt.wantError {
+				t.Errorf("GetRateLimitStatus() unexpected error: %v", err)
+			}
+			if !gotError && tt.wantError {
+				t.Error("GetRateLimitStatus() expected error, got nil")
+			}
+
+			// If no error expected, verify the result structure
+			if !tt.wantError {
+				if info == nil {
+					t.Error("GetRateLimitStatus() returned nil info")
+				} else {
+					if info.Remaining < 0 {
+						t.Errorf("GetRateLimitStatus() returned negative remaining: %d", info.Remaining)
+					}
+					if info.ResetAt.IsZero() {
+						t.Error("GetRateLimitStatus() returned zero ResetAt time")
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestGetRateLimitStatus_InvalidClientType(t *testing.T) {
+	// Store original values
+	originalValues := map[string]interface{}{
+		"SOURCE_TOKEN": viper.Get("SOURCE_TOKEN"),
+		"TARGET_TOKEN": viper.Get("TARGET_TOKEN"),
+	}
+
+	// Restore original values after test
+	defer func() {
+		for key, value := range originalValues {
+			viper.Set(key, value)
+		}
+	}()
+
+	viper.Set("SOURCE_TOKEN", "test-source-token")
+	viper.Set("TARGET_TOKEN", "test-target-token")
+
+	api, err := NewGitHubAPI()
+	if err != nil {
+		t.Fatalf("Failed to create API: %v", err)
+	}
+
+	// Test with invalid client type - should fail when getting client
+	info, err := api.GetRateLimitStatus(ClientType(999))
+	if err == nil {
+		t.Error("GetRateLimitStatus() should have failed with invalid client type")
+	}
+
+	if info != nil {
+		t.Error("GetRateLimitStatus() should return nil info on error")
+	}
+
+	expectedErrMsg := "invalid client type"
+	if !strings.Contains(err.Error(), expectedErrMsg) {
+		t.Errorf("GetRateLimitStatus() error = %v, want error containing %q", err, expectedErrMsg)
 	}
 }

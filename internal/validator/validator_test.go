@@ -801,13 +801,13 @@ func TestRetrieveSourceData_PublicMethodExists(t *testing.T) {
 
 	// If this compiles, it means the public method exists with the correct signature
 	// We use a type assertion to verify the method signature without calling it
-	var method func(string, string, *pterm.SpinnerPrinter) error = validator.RetrieveSourceData
+	var method func(string, string, *pterm.SpinnerPrinter) ([]string, error) = validator.RetrieveSourceData
 
 	assert.NotNil(t, method, "RetrieveSourceData method should exist")
 
 	// This test serves as a compile-time verification that:
 	// 1. The method is public (capitalized)
-	// 2. It has the expected signature
+	// 2. It has the expected signature (returns []string for error messages, error)
 	// 3. It's callable from external packages
 }
 

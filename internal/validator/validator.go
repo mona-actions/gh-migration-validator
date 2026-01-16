@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"mona-actions/gh-migration-validator/internal/api"
 	"mona-actions/gh-migration-validator/internal/migrationarchive"
+	"mona-actions/gh-migration-validator/internal/output"
 	"strings"
 	"sync"
 	"time"
@@ -97,6 +98,9 @@ func (mv *MigrationValidator) ValidateMigration(sourceOwner, sourceRepo, targetO
 		return nil, fmt.Errorf("cannot access target repository %s/%s: %w", targetOwner, targetRepo, err)
 	}
 
+	// Check rate limits before starting - warn if low
+	mv.checkAndWarnRateLimits()
+
 	fmt.Println("Starting migration validation...")
 	fmt.Printf("Source: %s/%s | Target: %s/%s\n", sourceOwner, sourceRepo, targetOwner, targetRepo)
 
@@ -113,6 +117,7 @@ func (mv *MigrationValidator) ValidateMigration(sourceOwner, sourceRepo, targetO
 	// Use WaitGroup to wait for both goroutines to complete
 	var wg sync.WaitGroup
 	var sourceErr, targetErr error
+	var sourceErrorMsgs, targetErrorMsgs []string
 
 	// Channel to synchronize goroutines
 	wg.Add(2)
@@ -120,13 +125,13 @@ func (mv *MigrationValidator) ValidateMigration(sourceOwner, sourceRepo, targetO
 	// Retrieve source repository data in a goroutine
 	go func() {
 		defer wg.Done()
-		sourceErr = mv.retrieveSource(sourceOwner, sourceRepo, sourceSpinner)
+		sourceErrorMsgs, sourceErr = mv.retrieveSource(sourceOwner, sourceRepo, sourceSpinner)
 	}()
 
 	// Retrieve target repository data in a goroutine
 	go func() {
 		defer wg.Done()
-		targetErr = mv.retrieveTarget(targetOwner, targetRepo, targetSpinner)
+		targetErrorMsgs, targetErr = mv.retrieveTarget(targetOwner, targetRepo, targetSpinner)
 	}()
 
 	// Wait for both goroutines to complete
@@ -134,6 +139,10 @@ func (mv *MigrationValidator) ValidateMigration(sourceOwner, sourceRepo, targetO
 
 	// Stop the multi printer
 	multi.Stop()
+
+	// Log any API errors (safe to call after spinners finish)
+	output.LogAPIErrors(sourceErrorMsgs, sourceOwner, sourceRepo, sourceErr)
+	output.LogAPIErrors(targetErrorMsgs, targetOwner, targetRepo, targetErr)
 
 	// Check for errors from both operations
 	if sourceErr != nil {
@@ -151,11 +160,36 @@ func (mv *MigrationValidator) ValidateMigration(sourceOwner, sourceRepo, targetO
 	return results, nil
 }
 
-// retrieveSource retrieves all repository data from the source repository
-// Handles individual API failures gracefully by logging errors and continuing with default values
-func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.SpinnerPrinter) error {
+// checks rate limits for both source and target clients (configurable via RATE_LIMIT_THRESHOLD env var, default 50).
+// Set threshold to 0 to disable rate limit warnings.
+func (mv *MigrationValidator) checkAndWarnRateLimits() {
+	viper.SetDefault("RATE_LIMIT_THRESHOLD", 50)
+	threshold := viper.GetInt("RATE_LIMIT_THRESHOLD")
+
+	sourceRL, sourceErr := mv.api.GetRateLimitStatus(api.SourceClient)
+	targetRL, targetErr := mv.api.GetRateLimitStatus(api.TargetClient)
+
+	if sourceErr != nil {
+		pterm.DefaultLogger.Warn("Source API rate limit check failed", pterm.DefaultLogger.Args("error", sourceErr.Error()))
+	} else {
+		output.LogRateLimitWarning("Source", sourceRL.Remaining, sourceRL.ResetAt, threshold)
+	}
+
+	if targetErr != nil {
+		pterm.DefaultLogger.Warn("Target API rate limit check failed", pterm.DefaultLogger.Args("error", targetErr.Error()))
+	} else {
+		output.LogRateLimitWarning("Target", targetRL.Remaining, targetRL.ResetAt, threshold)
+	}
+}
+
+// retrieveSource retrieves all repository data from the source repository.
+// Returns a slice of error messages for display after spinners finish, and an error if all requests failed.
+// An empty slice indicates all requests succeeded; callers should only expect error messages when
+// partial failures occur (some requests succeeded, some failed).
+func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.SpinnerPrinter) ([]string, error) {
 	startTime := time.Now()
 	var failedRequests []string
+	var errorMessages []string
 	var successfulRequests int
 
 	mv.SourceData.Owner = owner
@@ -165,8 +199,8 @@ func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.
 	spinner.UpdateText(fmt.Sprintf("Fetching issues from %s/%s...", owner, name))
 	issues, err := mv.api.GetIssueCount(api.SourceClient, owner, name)
 	if err != nil {
-		pterm.Error.Printf("Failed to fetch issues from %s/%s: %v\n", owner, name, err)
 		failedRequests = append(failedRequests, "issues")
+		errorMessages = append(errorMessages, fmt.Sprintf("issues: %v", err))
 		mv.SourceData.Issues = 0
 	} else {
 		mv.SourceData.Issues = issues
@@ -177,8 +211,8 @@ func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.
 	spinner.UpdateText(fmt.Sprintf("Fetching pull requests from %s/%s...", owner, name))
 	prCounts, err := mv.api.GetPRCounts(api.SourceClient, owner, name)
 	if err != nil {
-		pterm.Error.Printf("Failed to fetch pull requests from %s/%s: %v\n", owner, name, err)
 		failedRequests = append(failedRequests, "pull requests")
+		errorMessages = append(errorMessages, fmt.Sprintf("pull requests: %v", err))
 		mv.SourceData.PRs = &api.PRCounts{Total: 0, Open: 0, Merged: 0, Closed: 0}
 	} else {
 		mv.SourceData.PRs = prCounts
@@ -189,8 +223,8 @@ func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.
 	spinner.UpdateText(fmt.Sprintf("Fetching tags from %s/%s...", owner, name))
 	tags, err := mv.api.GetTagCount(api.SourceClient, owner, name)
 	if err != nil {
-		pterm.Error.Printf("Failed to fetch tags from %s/%s: %v\n", owner, name, err)
 		failedRequests = append(failedRequests, "tags")
+		errorMessages = append(errorMessages, fmt.Sprintf("tags: %v", err))
 		mv.SourceData.Tags = 0
 	} else {
 		mv.SourceData.Tags = tags
@@ -201,8 +235,8 @@ func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.
 	spinner.UpdateText(fmt.Sprintf("Fetching releases from %s/%s...", owner, name))
 	releases, err := mv.api.GetReleaseCount(api.SourceClient, owner, name)
 	if err != nil {
-		pterm.Error.Printf("Failed to fetch releases from %s/%s: %v\n", owner, name, err)
 		failedRequests = append(failedRequests, "releases")
+		errorMessages = append(errorMessages, fmt.Sprintf("releases: %v", err))
 		mv.SourceData.Releases = 0
 	} else {
 		mv.SourceData.Releases = releases
@@ -213,8 +247,8 @@ func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.
 	spinner.UpdateText(fmt.Sprintf("Fetching commit count from %s/%s...", owner, name))
 	commitCount, err := mv.api.GetCommitCount(api.SourceClient, owner, name)
 	if err != nil {
-		pterm.Error.Printf("Failed to fetch commit count from %s/%s: %v\n", owner, name, err)
 		failedRequests = append(failedRequests, "commits")
+		errorMessages = append(errorMessages, fmt.Sprintf("commits: %v", err))
 		mv.SourceData.CommitCount = 0
 	} else {
 		mv.SourceData.CommitCount = commitCount
@@ -225,8 +259,8 @@ func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.
 	spinner.UpdateText(fmt.Sprintf("Fetching latest commit hash from %s/%s...", owner, name))
 	latestCommitSHA, err := mv.api.GetLatestCommitHash(api.SourceClient, owner, name)
 	if err != nil {
-		pterm.Error.Printf("Failed to fetch latest commit hash from %s/%s: %v\n", owner, name, err)
 		failedRequests = append(failedRequests, "latest commit hash")
+		errorMessages = append(errorMessages, fmt.Sprintf("latest commit hash: %v", err))
 		mv.SourceData.LatestCommitSHA = ""
 	} else {
 		mv.SourceData.LatestCommitSHA = latestCommitSHA
@@ -237,8 +271,8 @@ func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.
 	spinner.UpdateText(fmt.Sprintf("Fetching branch protection rules from %s/%s...", owner, name))
 	branchProtectionRules, err := mv.api.GetBranchProtectionRulesCount(api.SourceClient, owner, name)
 	if err != nil {
-		pterm.Error.Printf("Failed to fetch branch protection rules from %s/%s: %v\n", owner, name, err)
 		failedRequests = append(failedRequests, "branch protection rules")
+		errorMessages = append(errorMessages, fmt.Sprintf("branch protection rules: %v", err))
 		mv.SourceData.BranchProtectionRules = 0
 	} else {
 		mv.SourceData.BranchProtectionRules = branchProtectionRules
@@ -249,8 +283,8 @@ func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.
 	spinner.UpdateText(fmt.Sprintf("Fetching webhooks from %s/%s...", owner, name))
 	webhooks, err := mv.api.GetWebhookCount(api.SourceClient, owner, name)
 	if err != nil {
-		pterm.Error.Printf("Failed to fetch webhooks from %s/%s: %v\n", owner, name, err)
 		failedRequests = append(failedRequests, "webhooks")
+		errorMessages = append(errorMessages, fmt.Sprintf("webhooks: %v", err))
 		mv.SourceData.Webhooks = 0
 	} else {
 		mv.SourceData.Webhooks = webhooks
@@ -262,27 +296,21 @@ func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.
 	// Determine success/failure status
 	if successfulRequests == 0 {
 		spinner.Fail(fmt.Sprintf("Failed to retrieve any data from %s/%s", owner, name))
-		return fmt.Errorf("all API requests failed for %s/%s", owner, name)
+		return errorMessages, fmt.Errorf("all API requests failed for %s/%s", owner, name)
 	}
 
 	if len(failedRequests) > 0 {
-		spinner.Warning(fmt.Sprintf("%s/%s retrieved with %d successful and %d failed requests (%v)",
-			owner, name, successfulRequests, len(failedRequests), duration))
-		pterm.Warning.Printf("Failed to retrieve: %v\n", failedRequests)
-		pterm.Info.Println("Export will continue with available data (failed requests will have default values)")
+		spinner.Warning(fmt.Sprintf("%s/%s: %d OK, %d failed (%v) - missing: %v",
+			owner, name, successfulRequests, len(failedRequests), duration, failedRequests))
 	} else {
 		spinner.Success(fmt.Sprintf("%s/%s retrieved successfully (%v)", owner, name, duration))
 	}
 
-	return nil
+	return errorMessages, nil
 }
 
 // RetrieveSourceData is a public wrapper for retrieveSource for use by the export package
-func (mv *MigrationValidator) RetrieveSourceData(owner, name string, spinner *pterm.SpinnerPrinter) error {
-	// Validate access to source repository before starting
-	if err := mv.api.ValidateRepoAccess(api.SourceClient, owner, name); err != nil {
-		return fmt.Errorf("cannot access source repository %s/%s: %w", owner, name, err)
-	}
+func (mv *MigrationValidator) RetrieveSourceData(owner, name string, spinner *pterm.SpinnerPrinter) ([]string, error) {
 	return mv.retrieveSource(owner, name, spinner)
 }
 
@@ -318,6 +346,9 @@ func (mv *MigrationValidator) ValidateFromExport(targetOwner, targetRepo string)
 		return nil, fmt.Errorf("cannot access target repository %s/%s: %w", targetOwner, targetRepo, err)
 	}
 
+	// Check rate limits before starting - warn if low
+	mv.checkAndWarnRateLimits()
+
 	fmt.Println("Starting migration validation from export...")
 	fmt.Printf("Source: %s/%s (from export) | Target: %s/%s\n",
 		mv.SourceData.Owner, mv.SourceData.Name, targetOwner, targetRepo)
@@ -326,11 +357,13 @@ func (mv *MigrationValidator) ValidateFromExport(targetOwner, targetRepo string)
 	spinner, _ := pterm.DefaultSpinner.Start(fmt.Sprintf("Fetching target data from %s/%s...", targetOwner, targetRepo))
 
 	// Retrieve target data using existing functionality
-	err := mv.retrieveTarget(targetOwner, targetRepo, spinner)
+	errorMsgs, err := mv.retrieveTarget(targetOwner, targetRepo, spinner)
+
+	// Log any API errors (safe to call after spinner finishes)
+	output.LogAPIErrors(errorMsgs, targetOwner, targetRepo, err)
+
 	if err != nil {
-		spinner.Fail(fmt.Sprintf("Failed to fetch target data from %s/%s", targetOwner, targetRepo))
 		return nil, fmt.Errorf("failed to retrieve target data: %w", err)
-		//fail spinner
 	}
 
 	// Compare and validate the data (same as ValidateMigration)
@@ -341,11 +374,15 @@ func (mv *MigrationValidator) ValidateFromExport(targetOwner, targetRepo string)
 	return results, nil
 }
 
-// retrieveTarget retrieves all repository data from the target repository
-// Handles individual API failures gracefully by logging errors and continuing with default values
-func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.SpinnerPrinter) error {
+// retrieveTarget retrieves all repository data from the target repository.
+// Handles individual API failures gracefully by logging errors and continuing with default values.
+// Returns a slice of error messages for display after spinners finish, and an error if all requests failed.
+// An empty slice indicates all requests succeeded; callers should only expect error messages when
+// partial failures occur (some requests succeeded, some failed).
+func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.SpinnerPrinter) ([]string, error) {
 	startTime := time.Now()
 	var failedRequests []string
+	var errorMessages []string
 	var successfulRequests int
 
 	mv.TargetData.Owner = owner
@@ -355,8 +392,8 @@ func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.
 	spinner.UpdateText(fmt.Sprintf("Fetching issues from %s/%s...", owner, name))
 	issues, err := mv.api.GetIssueCount(api.TargetClient, owner, name)
 	if err != nil {
-		pterm.Error.Printf("Failed to fetch issues from %s/%s: %v\n", owner, name, err)
 		failedRequests = append(failedRequests, "issues")
+		errorMessages = append(errorMessages, fmt.Sprintf("issues: %v", err))
 		mv.TargetData.Issues = 0
 	} else {
 		mv.TargetData.Issues = issues
@@ -367,8 +404,8 @@ func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.
 	spinner.UpdateText(fmt.Sprintf("Fetching pull requests from %s/%s...", owner, name))
 	prCounts, err := mv.api.GetPRCounts(api.TargetClient, owner, name)
 	if err != nil {
-		pterm.Error.Printf("Failed to fetch pull requests from %s/%s: %v\n", owner, name, err)
 		failedRequests = append(failedRequests, "pull requests")
+		errorMessages = append(errorMessages, fmt.Sprintf("pull requests: %v", err))
 		mv.TargetData.PRs = &api.PRCounts{Total: 0, Open: 0, Merged: 0, Closed: 0}
 	} else {
 		mv.TargetData.PRs = prCounts
@@ -379,8 +416,8 @@ func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.
 	spinner.UpdateText(fmt.Sprintf("Fetching tags from %s/%s...", owner, name))
 	tags, err := mv.api.GetTagCount(api.TargetClient, owner, name)
 	if err != nil {
-		pterm.Error.Printf("Failed to fetch tags from %s/%s: %v\n", owner, name, err)
 		failedRequests = append(failedRequests, "tags")
+		errorMessages = append(errorMessages, fmt.Sprintf("tags: %v", err))
 		mv.TargetData.Tags = 0
 	} else {
 		mv.TargetData.Tags = tags
@@ -391,8 +428,8 @@ func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.
 	spinner.UpdateText(fmt.Sprintf("Fetching releases from %s/%s...", owner, name))
 	releases, err := mv.api.GetReleaseCount(api.TargetClient, owner, name)
 	if err != nil {
-		pterm.Error.Printf("Failed to fetch releases from %s/%s: %v\n", owner, name, err)
 		failedRequests = append(failedRequests, "releases")
+		errorMessages = append(errorMessages, fmt.Sprintf("releases: %v", err))
 		mv.TargetData.Releases = 0
 	} else {
 		mv.TargetData.Releases = releases
@@ -403,8 +440,8 @@ func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.
 	spinner.UpdateText(fmt.Sprintf("Fetching commit count from %s/%s...", owner, name))
 	commitCount, err := mv.api.GetCommitCount(api.TargetClient, owner, name)
 	if err != nil {
-		pterm.Error.Printf("Failed to fetch commit count from %s/%s: %v\n", owner, name, err)
 		failedRequests = append(failedRequests, "commits")
+		errorMessages = append(errorMessages, fmt.Sprintf("commits: %v", err))
 		mv.TargetData.CommitCount = 0
 	} else {
 		mv.TargetData.CommitCount = commitCount
@@ -415,8 +452,8 @@ func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.
 	spinner.UpdateText(fmt.Sprintf("Fetching latest commit hash from %s/%s...", owner, name))
 	latestCommitSHA, err := mv.api.GetLatestCommitHash(api.TargetClient, owner, name)
 	if err != nil {
-		pterm.Error.Printf("Failed to fetch latest commit hash from %s/%s: %v\n", owner, name, err)
 		failedRequests = append(failedRequests, "latest commit hash")
+		errorMessages = append(errorMessages, fmt.Sprintf("latest commit hash: %v", err))
 		mv.TargetData.LatestCommitSHA = ""
 	} else {
 		mv.TargetData.LatestCommitSHA = latestCommitSHA
@@ -427,8 +464,8 @@ func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.
 	spinner.UpdateText(fmt.Sprintf("Fetching branch protection rules from %s/%s...", owner, name))
 	branchProtectionRules, err := mv.api.GetBranchProtectionRulesCount(api.TargetClient, owner, name)
 	if err != nil {
-		pterm.Error.Printf("Failed to fetch branch protection rules from %s/%s: %v\n", owner, name, err)
 		failedRequests = append(failedRequests, "branch protection rules")
+		errorMessages = append(errorMessages, fmt.Sprintf("branch protection rules: %v", err))
 		mv.TargetData.BranchProtectionRules = 0
 	} else {
 		mv.TargetData.BranchProtectionRules = branchProtectionRules
@@ -439,8 +476,8 @@ func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.
 	spinner.UpdateText(fmt.Sprintf("Fetching webhooks from %s/%s...", owner, name))
 	webhooks, err := mv.api.GetWebhookCount(api.TargetClient, owner, name)
 	if err != nil {
-		pterm.Error.Printf("Failed to fetch webhooks from %s/%s: %v\n", owner, name, err)
 		failedRequests = append(failedRequests, "webhooks")
+		errorMessages = append(errorMessages, fmt.Sprintf("webhooks: %v", err))
 		mv.TargetData.Webhooks = 0
 	} else {
 		mv.TargetData.Webhooks = webhooks
@@ -452,19 +489,17 @@ func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.
 	// Determine success/failure status
 	if successfulRequests == 0 {
 		spinner.Fail(fmt.Sprintf("Failed to retrieve any data from %s/%s", owner, name))
-		return fmt.Errorf("all API requests failed for %s/%s", owner, name)
+		return errorMessages, fmt.Errorf("all API requests failed for %s/%s", owner, name)
 	}
 
 	if len(failedRequests) > 0 {
-		spinner.Warning(fmt.Sprintf("%s/%s retrieved with %d successful and %d failed requests (%v)",
-			owner, name, successfulRequests, len(failedRequests), duration))
-		pterm.Warning.Printf("Failed to retrieve: %v\n", failedRequests)
-		pterm.Info.Println("Validation will continue with available data (failed requests will have default values)")
+		spinner.Warning(fmt.Sprintf("%s/%s: %d OK, %d failed (%v) - missing: %v",
+			owner, name, successfulRequests, len(failedRequests), duration, failedRequests))
 	} else {
 		spinner.Success(fmt.Sprintf("%s/%s retrieved successfully (%v)", owner, name, duration))
 	}
 
-	return nil
+	return errorMessages, nil
 }
 
 // validateRepositoryData compares source and target repository data and returns validation results
