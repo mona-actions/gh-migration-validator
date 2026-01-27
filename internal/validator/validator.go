@@ -898,22 +898,30 @@ type markdownOutputOptions struct {
 	announce         bool
 }
 
-// printMarkdownTable prints a markdown-formatted table for easy copy/paste
-func (mv *MigrationValidator) printMarkdownTable(results []ValidationResult, opts markdownOutputOptions) {
-	writer := opts.writer
-	if writer == nil {
-		writer = os.Stdout
+// printMarkdownTable prints a markdown-formatted table for easy copy/paste.
+// The optional options parameter lets callers customize output; when omitted
+// it preserves legacy behavior used by existing tests (stdout, code fences, announcement).
+func (mv *MigrationValidator) printMarkdownTable(results []ValidationResult, opts ...markdownOutputOptions) {
+	opt := markdownOutputOptions{writer: os.Stdout, includeCodeFence: true, announce: true}
+	if len(opts) > 0 {
+		opt = opts[0]
+		if opt.writer == nil {
+			opt.writer = os.Stdout
+		}
 	}
 
-	if opts.announce {
+	writer := opt.writer
+
+	if opt.announce {
 		pterm.DefaultSection.Println("📋 Markdown Table (Copy-Paste Ready)")
 	}
 
-	if opts.includeCodeFence {
+	if opt.includeCodeFence {
 		fmt.Fprintln(writer, "```markdown")
 	}
 
-	fmt.Fprintln(writer, "# Migration Validation Report\n")
+	fmt.Fprintln(writer, "# Migration Validation Report")
+	fmt.Fprintln(writer)
 	fmt.Fprintf(writer, "**Source:** `%s/%s`  \n", mv.SourceData.Owner, mv.SourceData.Name)
 	fmt.Fprintf(writer, "**Target:** `%s/%s`  \n\n", mv.TargetData.Owner, mv.TargetData.Name)
 
@@ -956,7 +964,9 @@ func (mv *MigrationValidator) printMarkdownTable(results []ValidationResult, opt
 		}
 	}
 
-	fmt.Fprintln(writer, "\n## Summary\n")
+	fmt.Fprintln(writer)
+	fmt.Fprintln(writer, "## Summary")
+	fmt.Fprintln(writer)
 	fmt.Fprintf(writer, "- **Passed:** %d  \n", passCount)
 	fmt.Fprintf(writer, "- **Failed:** %d  \n", failCount)
 	fmt.Fprintf(writer, "- **Warnings:** %d  \n\n", warnCount)
@@ -969,9 +979,9 @@ func (mv *MigrationValidator) printMarkdownTable(results []ValidationResult, opt
 		fmt.Fprintln(writer, "**Result:** ✅ Migration validation PASSED - All data matches!")
 	}
 
-	if opts.includeCodeFence {
+	if opt.includeCodeFence {
 		fmt.Fprintln(writer, "```")
-		if opts.announce {
+		if opt.announce {
 			pterm.Info.Println("💡 Tip: You can select and copy the entire markdown section above to paste into documentation, issues, or pull requests!")
 		}
 	}
