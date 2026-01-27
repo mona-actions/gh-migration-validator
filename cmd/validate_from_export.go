@@ -48,6 +48,11 @@ The validation compares the same metrics as the standard validate command:
 			fmt.Printf("Failed to parse 'markdown-table' flag: %v\n", err)
 			os.Exit(1)
 		}
+		markdownFile, err := cmd.Flags().GetString("markdown-file")
+		if err != nil {
+			fmt.Printf("Failed to parse 'markdown-file' flag: %v\n", err)
+			os.Exit(1)
+		}
 
 		// Only set ENV variables if flag values are provided (not empty)
 		if targetToken != "" {
@@ -59,6 +64,9 @@ The validation compares the same metrics as the standard validate command:
 		if markdownTable {
 			os.Setenv("GHMV_MARKDOWN_TABLE", "true")
 		}
+		if markdownFile != "" {
+			os.Setenv("GHMV_MARKDOWN_FILE", markdownFile)
+		}
 
 		// Bind ENV variables in Viper (for optional parameters that can use env vars)
 		viper.BindEnv("TARGET_TOKEN")
@@ -67,6 +75,7 @@ The validation compares the same metrics as the standard validate command:
 		viper.BindEnv("TARGET_APP_ID")
 		viper.BindEnv("TARGET_INSTALLATION_ID")
 		viper.BindEnv("MARKDOWN_TABLE")
+		viper.BindEnv("MARKDOWN_FILE")
 
 		// Validate required parameters (using flag values directly for required flags)
 		if err := checkExportValidationVars(exportFile); err != nil {
@@ -128,6 +137,7 @@ func init() {
 	validateFromExportCmd.MarkFlagRequired("target-repo")
 
 	validateFromExportCmd.Flags().BoolP("markdown-table", "m", false, "Output results in markdown table format")
+	validateFromExportCmd.Flags().String("markdown-file", "", "Write markdown output to the specified file (optional)")
 }
 
 // checkExportValidationVars validates the configuration for validate-from-export command

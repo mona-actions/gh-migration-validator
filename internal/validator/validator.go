@@ -1,10 +1,13 @@
 package validator
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"mona-actions/gh-migration-validator/internal/api"
 	"mona-actions/gh-migration-validator/internal/migrationarchive"
 	"mona-actions/gh-migration-validator/internal/output"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -886,22 +889,36 @@ func (mv *MigrationValidator) displayValidationSummary(results []ValidationResul
 	}
 
 	fmt.Println() // Add spacing
-	if viper.GetBool("MARKDOWN_TABLE") {
-		mv.printMarkdownTable(results)
-	}
+	mv.outputMarkdownResults(results)
+}
+
+type markdownOutputOptions struct {
+	writer           io.Writer
+	includeCodeFence bool
+	announce         bool
 }
 
 // printMarkdownTable prints a markdown-formatted table for easy copy/paste
-func (mv *MigrationValidator) printMarkdownTable(results []ValidationResult) {
-	pterm.DefaultSection.Println("📋 Markdown Table (Copy-Paste Ready)")
+func (mv *MigrationValidator) printMarkdownTable(results []ValidationResult, opts markdownOutputOptions) {
+	writer := opts.writer
+	if writer == nil {
+		writer = os.Stdout
+	}
 
-	fmt.Println("```markdown")
-	fmt.Printf("# Migration Validation Report\n\n")
-	fmt.Printf("**Source:** `%s/%s`  \n", mv.SourceData.Owner, mv.SourceData.Name)
-	fmt.Printf("**Target:** `%s/%s`  \n\n", mv.TargetData.Owner, mv.TargetData.Name)
+	if opts.announce {
+		pterm.DefaultSection.Println("📋 Markdown Table (Copy-Paste Ready)")
+	}
 
-	fmt.Println("| Metric | Status | Source Value | Target Value | Difference |")
-	fmt.Println("|--------|--------|--------------|--------------|------------|")
+	if opts.includeCodeFence {
+		fmt.Fprintln(writer, "```markdown")
+	}
+
+	fmt.Fprintln(writer, "# Migration Validation Report\n")
+	fmt.Fprintf(writer, "**Source:** `%s/%s`  \n", mv.SourceData.Owner, mv.SourceData.Name)
+	fmt.Fprintf(writer, "**Target:** `%s/%s`  \n\n", mv.TargetData.Owner, mv.TargetData.Name)
+
+	fmt.Fprintln(writer, "| Metric | Status | Source Value | Target Value | Difference |")
+	fmt.Fprintln(writer, "|--------|--------|--------------|--------------|------------|")
 
 	for _, result := range results {
 		diffStr := ""
@@ -915,7 +932,7 @@ func (mv *MigrationValidator) printMarkdownTable(results []ValidationResult) {
 			diffStr = "Perfect match"
 		}
 
-		fmt.Printf("| %s | %s | %v | %v | %s |\n",
+		fmt.Fprintf(writer, "| %s | %s | %v | %v | %s |\n",
 			result.Metric,
 			result.Status,
 			result.SourceVal,
@@ -939,20 +956,49 @@ func (mv *MigrationValidator) printMarkdownTable(results []ValidationResult) {
 		}
 	}
 
-	fmt.Printf("\n## Summary\n\n")
-	fmt.Printf("- **Passed:** %d  \n", passCount)
-	fmt.Printf("- **Failed:** %d  \n", failCount)
-	fmt.Printf("- **Warnings:** %d  \n\n", warnCount)
+	fmt.Fprintln(writer, "\n## Summary\n")
+	fmt.Fprintf(writer, "- **Passed:** %d  \n", passCount)
+	fmt.Fprintf(writer, "- **Failed:** %d  \n", failCount)
+	fmt.Fprintf(writer, "- **Warnings:** %d  \n\n", warnCount)
 
 	if failCount > 0 {
-		fmt.Printf("**Result:** ❌ Migration validation FAILED - Some data is missing in target\n")
+		fmt.Fprintln(writer, "**Result:** ❌ Migration validation FAILED - Some data is missing in target")
 	} else if warnCount > 0 {
-		fmt.Printf("**Result:** ⚠️ Migration validation completed with WARNINGS - Target has more data than source\n")
+		fmt.Fprintln(writer, "**Result:** ⚠️ Migration validation completed with WARNINGS - Target has more data than source")
 	} else {
-		fmt.Printf("**Result:** ✅ Migration validation PASSED - All data matches!\n")
+		fmt.Fprintln(writer, "**Result:** ✅ Migration validation PASSED - All data matches!")
 	}
 
-	fmt.Println("```")
+	if opts.includeCodeFence {
+		fmt.Fprintln(writer, "```")
+		if opts.announce {
+			pterm.Info.Println("💡 Tip: You can select and copy the entire markdown section above to paste into documentation, issues, or pull requests!")
+		}
+	}
+}
 
-	pterm.Info.Println("💡 Tip: You can select and copy the entire markdown section above to paste into documentation, issues, or pull requests!")
+func (mv *MigrationValidator) writeMarkdownToFile(results []ValidationResult, path string) error {
+	var buffer bytes.Buffer
+	mv.printMarkdownTable(results, markdownOutputOptions{writer: &buffer, includeCodeFence: false, announce: false})
+	return os.WriteFile(path, buffer.Bytes(), 0o644)
+}
+
+func (mv *MigrationValidator) outputMarkdownResults(results []ValidationResult) {
+	markdownTable := viper.GetBool("MARKDOWN_TABLE")
+	markdownFile := viper.GetString("MARKDOWN_FILE")
+
+	if markdownTable {
+		mv.printMarkdownTable(results, markdownOutputOptions{writer: os.Stdout, includeCodeFence: true, announce: true})
+	}
+
+	if markdownFile == "" {
+		return
+	}
+
+	if err := mv.writeMarkdownToFile(results, markdownFile); err != nil {
+		pterm.Error.Printf("Failed to write markdown file %s: %v\n", markdownFile, err)
+		return
+	}
+
+	pterm.Success.Printf("📁 Markdown report saved to %s\n", markdownFile)
 }

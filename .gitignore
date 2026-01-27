@@ -38,3 +38,4 @@ scratch
 gh-migration-validator
 .exports/
 migration-archives/
+.envrc

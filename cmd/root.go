@@ -75,6 +75,7 @@ func init() {
 	rootCmd.Flags().StringP("source-repo", "", "", "Source repository name to verify against (just the repo name, not owner/repo)")
 	rootCmd.Flags().StringP("target-repo", "", "", "Target repository name to verify against (just the repo name, not owner/repo)")
 	rootCmd.Flags().BoolP("markdown-table", "m", false, "Print results as a markdown table")
+	rootCmd.Flags().String("markdown-file", "", "Write markdown output to the specified file (optional)")
 
 	// Set environment variable prefix: GHMV (GitHub Migration Validator)
 	viper.SetEnvPrefix("GHMV")
@@ -90,6 +91,7 @@ func init() {
 	viper.BindPFlag("SOURCE_REPO", rootCmd.Flags().Lookup("source-repo"))
 	viper.BindPFlag("TARGET_REPO", rootCmd.Flags().Lookup("target-repo"))
 	viper.BindPFlag("MARKDOWN_TABLE", rootCmd.Flags().Lookup("markdown-table"))
+	viper.BindPFlag("MARKDOWN_FILE", rootCmd.Flags().Lookup("markdown-file"))
 
 	// Bind environment variables explicitly for additional app authentication options
 	viper.BindEnv("SOURCE_PRIVATE_KEY")
@@ -98,6 +100,7 @@ func init() {
 	viper.BindEnv("TARGET_PRIVATE_KEY")
 	viper.BindEnv("TARGET_APP_ID")
 	viper.BindEnv("TARGET_INSTALLATION_ID")
+	viper.BindEnv("MARKDOWN_FILE")
 }
 
 // requiredConfig defines a required configuration with its flag and env var names
