@@ -24,6 +24,7 @@ func resetViperAndEnv() {
 		"GHMV_TARGET_REPO",
 		"GHMV_SOURCE_HOSTNAME",
 		"GHMV_MARKDOWN_TABLE",
+		"GHMV_MARKDOWN_FILE",
 	}
 	for _, env := range envVars {
 		os.Unsetenv(env)
@@ -43,6 +44,7 @@ func setupViperWithFlags(cmd *cobra.Command) {
 	viper.BindPFlag("SOURCE_REPO", cmd.Flags().Lookup("source-repo"))
 	viper.BindPFlag("TARGET_REPO", cmd.Flags().Lookup("target-repo"))
 	viper.BindPFlag("MARKDOWN_TABLE", cmd.Flags().Lookup("markdown-table"))
+	viper.BindPFlag("MARKDOWN_FILE", cmd.Flags().Lookup("markdown-file"))
 }
 
 // createTestCommand creates a fresh command with all flags for testing
@@ -62,6 +64,7 @@ func createTestCommand() *cobra.Command {
 	cmd.Flags().StringP("source-repo", "", "", "Source repo")
 	cmd.Flags().StringP("target-repo", "", "", "Target repo")
 	cmd.Flags().BoolP("markdown-table", "m", false, "Markdown table")
+	cmd.Flags().String("markdown-file", "", "Markdown output file")
 
 	return cmd
 }
@@ -337,6 +340,38 @@ func TestViperPriority_EnvVarUsedWhenFlagNotSet(t *testing.T) {
 	actual := viper.GetString("SOURCE_ORGANIZATION")
 	if actual != "env-value" {
 		t.Errorf("Expected env var value when flag not set. Got %s, want 'env-value'", actual)
+	}
+}
+
+func TestMarkdownFile_PriorityFlagBeatsEnv(t *testing.T) {
+	resetViperAndEnv()
+	defer resetViperAndEnv()
+
+	os.Setenv("GHMV_MARKDOWN_FILE", "env.md")
+
+	cmd := createTestCommand()
+	setupViperWithFlags(cmd)
+
+	cmd.Flags().Set("markdown-file", "flag.md")
+
+	actual := viper.GetString("MARKDOWN_FILE")
+	if actual != "flag.md" {
+		t.Errorf("Expected markdown-file flag to override env. Got %s, want 'flag.md'", actual)
+	}
+}
+
+func TestMarkdownFile_UsesEnvWhenFlagMissing(t *testing.T) {
+	resetViperAndEnv()
+	defer resetViperAndEnv()
+
+	os.Setenv("GHMV_MARKDOWN_FILE", "env.md")
+
+	cmd := createTestCommand()
+	setupViperWithFlags(cmd)
+
+	actual := viper.GetString("MARKDOWN_FILE")
+	if actual != "env.md" {
+		t.Errorf("Expected markdown file env to be used when flag missing. Got %s, want 'env.md'", actual)
 	}
 }
 

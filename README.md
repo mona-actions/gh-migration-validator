@@ -40,7 +40,8 @@ gh migration-validator \
   --target-repo "my-repo" \
   --github-source-pat "ghp_xxx" \
   --github-target-pat "ghp_yyy" \
-  --markdown-table
+  --markdown-table \
+  --markdown-file "validation-report.md"
 ```
 
 ### Environment Variables
@@ -55,6 +56,7 @@ export GHMV_TARGET_TOKEN="ghp_yyy"
 export GHMV_SOURCE_REPO="my-repo"
 export GHMV_TARGET_REPO="my-repo"
 export GHMV_MARKDOWN_TABLE="true"
+export GHMV_MARKDOWN_FILE="validation-report.md"
 
 gh migration-validator
 ```
@@ -206,6 +208,7 @@ gh migration-validator export \
 - `--github-target-pat` (required): GitHub token with read permissions for target
 - `--target-hostname` (optional): GitHub Enterprise Server URL for target
 - `--markdown-table` (optional): Output results in markdown format
+- `--markdown-file` (optional): Write markdown output to the specified file; uses the same content without the surrounding ```markdown fences
 
 ### Environment Variables for Validate-from-Export
 
@@ -214,6 +217,7 @@ export GHMV_TARGET_ORGANIZATION="target-org"
 export GHMV_TARGET_TOKEN="ghp_yyy"
 export GHMV_TARGET_REPO="my-repo"
 export GHMV_MARKDOWN_TABLE="true"
+export GHMV_MARKDOWN_FILE="validation-report.md"
 
 gh migration-validator validate-from-export --export-file "path/to/export.json"
 ```
