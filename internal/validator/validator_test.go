@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/pterm/pterm"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 
 	"mona-actions/gh-migration-validator/internal/api"
@@ -38,14 +40,17 @@ func setupTestValidator(sourceData, targetData *RepositoryData) *MigrationValida
 
 // captureOutput captures stdout during function execution
 func captureOutput(f func()) string {
-	old := os.Stdout
+	oldOut := os.Stdout
+	oldErr := os.Stderr
 	r, w, _ := os.Pipe()
 	os.Stdout = w
+	os.Stderr = w
 
 	f()
 
 	w.Close()
-	os.Stdout = old
+	os.Stdout = oldOut
+	os.Stderr = oldErr
 
 	var buf bytes.Buffer
 	io.Copy(&buf, r)
@@ -903,6 +908,28 @@ func BenchmarkValidateRepositoryData(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		validator.validateRepositoryData()
 	}
+}
+
+func TestOutputMarkdownResults_MissingDirectory(t *testing.T) {
+	// Ensure viper state is isolated
+	viper.Reset()
+	defer viper.Reset()
+
+	tempRoot := t.TempDir()
+	missingDir := filepath.Join(tempRoot, "does-not-exist", "report.md")
+
+	viper.Set("MARKDOWN_FILE", missingDir)
+	viper.Set("MARKDOWN_TABLE", false)
+
+	mv := &MigrationValidator{
+		SourceData: &RepositoryData{Owner: "src", Name: "repo"},
+		TargetData: &RepositoryData{Owner: "tgt", Name: "repo"},
+	}
+	results := []ValidationResult{{Metric: "Test", Status: ValidationStatusMessagePass, StatusType: ValidationStatusPass}}
+
+	mv.outputMarkdownResults(results)
+
+	assert.NoFileExists(t, missingDir)
 }
 
 func BenchmarkSetSourceDataFromExport(b *testing.B) {

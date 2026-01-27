@@ -8,6 +8,7 @@ import (
 	"mona-actions/gh-migration-validator/internal/migrationarchive"
 	"mona-actions/gh-migration-validator/internal/output"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -1003,6 +1004,13 @@ func (mv *MigrationValidator) outputMarkdownResults(results []ValidationResult) 
 
 	if markdownFile == "" {
 		return
+	}
+
+	if dir := filepath.Dir(markdownFile); dir != "." {
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			pterm.Error.Printf("Directory %q does not exist for markdown file\n", dir)
+			return
+		}
 	}
 
 	if err := mv.writeMarkdownToFile(results, markdownFile); err != nil {
