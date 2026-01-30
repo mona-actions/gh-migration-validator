@@ -270,11 +270,8 @@ func (api *GitHubAPI) ValidateLFSObjects(clientType ClientType, owner, name stri
 				// Other errors (403, 500, etc.) are also considered missing/unavailable
 				missingCount++
 			}
-		} else if obj.Actions != nil && len(obj.Actions) > 0 {
-			// Object exists and has download actions
-			existingCount++
 		} else {
-			// Object exists but no actions (already downloaded or other status)
+			// Object exists (may or may not have download actions)
 			existingCount++
 		}
 	}
