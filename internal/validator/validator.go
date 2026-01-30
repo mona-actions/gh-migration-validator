@@ -62,6 +62,7 @@ type RepositoryData struct {
 	LatestCommitSHA       string
 	BranchProtectionRules int
 	Webhooks              int
+	LFSObjects            int
 	MigrationArchive      *migrationarchive.MigrationArchiveMetrics `json:"migration_archive,omitempty"`
 }
 
@@ -295,6 +296,18 @@ func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.
 		successfulRequests++
 	}
 
+	// Get LFS object count
+	spinner.UpdateText(fmt.Sprintf("Fetching LFS objects from %s/%s...", owner, name))
+	lfsObjects, err := mv.api.GetLFSObjectCount(api.SourceClient, owner, name)
+	if err != nil {
+		failedRequests = append(failedRequests, "LFS objects")
+		errorMessages = append(errorMessages, fmt.Sprintf("LFS objects: %v", err))
+		mv.SourceData.LFSObjects = 0
+	} else {
+		mv.SourceData.LFSObjects = lfsObjects
+		successfulRequests++
+	}
+
 	duration := time.Since(startTime)
 
 	// Determine success/failure status
@@ -488,6 +501,18 @@ func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.
 		successfulRequests++
 	}
 
+	// Get LFS object count
+	spinner.UpdateText(fmt.Sprintf("Fetching LFS objects from %s/%s...", owner, name))
+	lfsObjects, err := mv.api.GetLFSObjectCount(api.TargetClient, owner, name)
+	if err != nil {
+		failedRequests = append(failedRequests, "LFS objects")
+		errorMessages = append(errorMessages, fmt.Sprintf("LFS objects: %v", err))
+		mv.TargetData.LFSObjects = 0
+	} else {
+		mv.TargetData.LFSObjects = lfsObjects
+		successfulRequests++
+	}
+
 	duration := time.Since(startTime)
 
 	// Determine success/failure status
@@ -628,6 +653,19 @@ func (mv *MigrationValidator) validateRepositoryData() []ValidationResult {
 		Status:     webhooksStatus,
 		StatusType: webhooksStatusType,
 		Difference: webhooksDiff,
+	})
+
+	// Compare LFS Objects
+	lfsDiff := mv.SourceData.LFSObjects - mv.TargetData.LFSObjects
+	lfsStatus, lfsStatusType := getValidationStatus(lfsDiff)
+
+	results = append(results, ValidationResult{
+		Metric:     "LFS Objects",
+		SourceVal:  mv.SourceData.LFSObjects,
+		TargetVal:  mv.TargetData.LFSObjects,
+		Status:     lfsStatus,
+		StatusType: lfsStatusType,
+		Difference: lfsDiff,
 	})
 
 	// Compare Latest Commit SHA
