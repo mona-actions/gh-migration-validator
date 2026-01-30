@@ -31,6 +31,18 @@ size 12345
 	assert.Equal(t, int64(12345), obj.Size)
 }
 
+func TestParseLFSPointer_ValidPointerWithZeroSize(t *testing.T) {
+	content := `version https://git-lfs.github.com/spec/v1
+oid sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+size 0`
+
+	obj, isLFS := parseLFSPointer(content)
+
+	assert.True(t, isLFS, "Should identify valid LFS pointer with size 0 (empty file)")
+	assert.Equal(t, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", obj.OID)
+	assert.Equal(t, int64(0), obj.Size)
+}
+
 func TestParseLFSPointer_NotLFSPointer(t *testing.T) {
 	content := `This is just a regular text file
 with multiple lines
@@ -67,6 +79,16 @@ oid sha256:4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393`
 	_, isLFS := parseLFSPointer(content)
 
 	assert.False(t, isLFS, "Should not identify pointer without size as valid")
+}
+
+func TestParseLFSPointer_MalformedSize(t *testing.T) {
+	content := `version https://git-lfs.github.com/spec/v1
+oid sha256:4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393
+size abc`
+
+	_, isLFS := parseLFSPointer(content)
+
+	assert.False(t, isLFS, "Should not identify pointer with malformed size as valid")
 }
 
 func TestParseLFSPointer_TooShort(t *testing.T) {

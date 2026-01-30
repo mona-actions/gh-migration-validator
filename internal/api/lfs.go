@@ -91,6 +91,7 @@ func (api *GitHubAPI) GetLFSObjects(clientType ClientType, owner, name string) (
 	}
 
 	lfsObjects := make([]LFSObject, 0)
+	seenOIDs := make(map[string]bool) // Track OIDs to deduplicate
 	
 	// Get the repository tree recursively
 	tree, _, err := restClient.Git.GetTree(ctx, owner, name, defaultBranch, true)
@@ -98,10 +99,18 @@ func (api *GitHubAPI) GetLFSObjects(clientType ClientType, owner, name string) (
 		return nil, fmt.Errorf("failed to get %s repository tree: %v", clientName, err)
 	}
 
+	// LFS pointer files are always small (less than 200 bytes)
+	const maxLFSPointerSize = 200
+
 	// Process each file in the tree
 	for _, entry := range tree.Entries {
 		// Only process blob entries (files)
 		if entry.GetType() != "blob" {
+			continue
+		}
+
+		// Skip files that are too large to be LFS pointers
+		if entry.Size != nil && *entry.Size > maxLFSPointerSize {
 			continue
 		}
 
@@ -114,7 +123,11 @@ func (api *GitHubAPI) GetLFSObjects(clientType ClientType, owner, name string) (
 
 		// Check if this is an LFS pointer file
 		if lfsObj, isLFS := parseLFSPointer(blob.GetContent()); isLFS {
-			lfsObjects = append(lfsObjects, lfsObj)
+			// Deduplicate by OID
+			if !seenOIDs[lfsObj.OID] {
+				lfsObjects = append(lfsObjects, lfsObj)
+				seenOIDs[lfsObj.OID] = true
+			}
 		}
 	}
 
@@ -142,17 +155,25 @@ func parseLFSPointer(content string) (LFSObject, bool) {
 
 	var oid string
 	var size int64
+	sizeFound := false
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "oid sha256:") {
 			oid = strings.TrimPrefix(line, "oid sha256:")
 		} else if strings.HasPrefix(line, "size ") {
-			fmt.Sscanf(line, "size %d", &size)
+			// Parse the size and check for errors
+			var parsedSize int64
+			n, err := fmt.Sscanf(line, "size %d", &parsedSize)
+			if err == nil && n == 1 {
+				size = parsedSize
+				sizeFound = true
+			}
 		}
 	}
 
-	if oid == "" || size == 0 {
+	// OID must be present, and size must be found (even if it's 0)
+	if oid == "" || !sizeFound {
 		return LFSObject{}, false
 	}
 
@@ -201,12 +222,7 @@ func (api *GitHubAPI) ValidateLFSObjects(clientType ClientType, owner, name stri
 	req.Header.Set("Accept", "application/vnd.git-lfs+json")
 	req.Header.Set("Content-Type", "application/vnd.git-lfs+json")
 
-	// Add authentication
-	if config.Token != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", config.Token))
-	}
-
-	// Execute the request
+	// Execute the request using authenticated client
 	httpClient, err := createAuthenticatedClient(config)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to create authenticated client: %v", err)
@@ -235,15 +251,18 @@ func (api *GitHubAPI) ValidateLFSObjects(clientType ClientType, owner, name stri
 
 	for _, obj := range batchResp.Objects {
 		if obj.Error != nil {
-			// Object has an error (likely doesn't exist)
+			// Object has an error
 			if obj.Error.Code == 404 {
+				missingCount++
+			} else {
+				// Other errors (403, 500, etc.) are also considered missing/unavailable
 				missingCount++
 			}
 		} else if obj.Actions != nil && len(obj.Actions) > 0 {
 			// Object exists and has download actions
 			existingCount++
 		} else {
-			// Object exists but no actions (already downloaded or authenticated issue)
+			// Object exists but no actions (already downloaded or other status)
 			existingCount++
 		}
 	}
