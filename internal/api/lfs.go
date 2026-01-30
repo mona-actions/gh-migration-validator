@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -121,8 +122,19 @@ func (api *GitHubAPI) GetLFSObjects(clientType ClientType, owner, name string) (
 			continue
 		}
 
+		// Decode the blob content if it's base64 encoded
+		content := blob.GetContent()
+		if blob.GetEncoding() == "base64" {
+			decoded, err := base64.StdEncoding.DecodeString(content)
+			if err != nil {
+				// Skip files we can't decode
+				continue
+			}
+			content = string(decoded)
+		}
+
 		// Check if this is an LFS pointer file
-		if lfsObj, isLFS := parseLFSPointer(blob.GetContent()); isLFS {
+		if lfsObj, isLFS := parseLFSPointer(content); isLFS {
 			// Deduplicate by OID
 			if !seenOIDs[lfsObj.OID] {
 				lfsObjects = append(lfsObjects, lfsObj)
