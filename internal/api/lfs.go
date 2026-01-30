@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"strings"
 
+	"github.com/google/go-github/v62/github"
 	"github.com/shurcooL/githubv4"
 )
 
@@ -51,7 +53,8 @@ type LFSAction struct {
 }
 
 // GetLFSObjects retrieves all LFS objects (OIDs) referenced in the repository
-// by traversing the repository tree and parsing LFS pointer files
+// by first reading .gitattributes to find LFS-tracked patterns, then only
+// checking files that match those patterns for LFS pointer content
 func (api *GitHubAPI) GetLFSObjects(clientType ClientType, owner, name string) ([]LFSObject, error) {
 	ctx := context.Background()
 
@@ -85,10 +88,23 @@ func (api *GitHubAPI) GetLFSObjects(clientType ClientType, owner, name string) (
 		return []LFSObject{}, nil
 	}
 
-	// Use REST API to get all LFS pointer files
+	// Use REST API to get LFS patterns and files
 	restClient, _, err := api.getRESTClient(clientType)
 	if err != nil {
 		return nil, err
+	}
+
+	// Get LFS-tracked patterns from .gitattributes
+	lfsPatterns, err := api.getLFSPatternsFromGitAttributes(ctx, restClient, owner, name, defaultBranch)
+	if err != nil {
+		// If we can't read .gitattributes, fall back to checking all small files
+		// This is not an error - the repo might not use LFS or might not have .gitattributes
+		return api.getLFSObjectsFallback(ctx, restClient, owner, name, defaultBranch, clientName)
+	}
+
+	// If no LFS patterns found, return empty list
+	if len(lfsPatterns) == 0 {
+		return []LFSObject{}, nil
 	}
 
 	lfsObjects := make([]LFSObject, 0)
@@ -96,6 +112,168 @@ func (api *GitHubAPI) GetLFSObjects(clientType ClientType, owner, name string) (
 
 	// Get the repository tree recursively
 	tree, _, err := restClient.Git.GetTree(ctx, owner, name, defaultBranch, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get %s repository tree: %v", clientName, err)
+	}
+
+	// Process each file in the tree
+	for _, entry := range tree.Entries {
+		// Only process blob entries (files)
+		if entry.GetType() != "blob" {
+			continue
+		}
+
+		// Check if this file matches any LFS pattern
+		filePath := entry.GetPath()
+		if !matchesLFSPattern(filePath, lfsPatterns) {
+			continue
+		}
+
+		// Get the blob content to extract the OID
+		blob, _, err := restClient.Git.GetBlob(ctx, owner, name, entry.GetSHA())
+		if err != nil {
+			// Skip files we can't read
+			continue
+		}
+
+		// Decode the blob content if it's base64 encoded
+		content := blob.GetContent()
+		if blob.GetEncoding() == "base64" {
+			decoded, err := base64.StdEncoding.DecodeString(content)
+			if err != nil {
+				// Skip files we can't decode
+				continue
+			}
+			content = string(decoded)
+		}
+
+		// If content is empty, the LFS pointer was not migrated properly
+		// LFS pointer files should always have content (version, oid, size)
+		if strings.TrimSpace(content) == "" {
+			// This could be a missing LFS object, but we can't extract the OID
+			// Skip for now as we can't add it to the validation list
+			continue
+		}
+
+		// Check if this is an LFS pointer file and extract the OID
+		if lfsObj, isLFS := parseLFSPointer(content); isLFS {
+			// Deduplicate by OID
+			if !seenOIDs[lfsObj.OID] {
+				lfsObjects = append(lfsObjects, lfsObj)
+				seenOIDs[lfsObj.OID] = true
+			}
+		}
+	}
+
+	return lfsObjects, nil
+}
+
+// getLFSPatternsFromGitAttributes reads .gitattributes and extracts LFS-tracked file patterns
+func (api *GitHubAPI) getLFSPatternsFromGitAttributes(ctx context.Context, restClient *github.Client, owner, name, ref string) ([]string, error) {
+	// Get the tree to find .gitattributes
+	tree, _, err := restClient.Git.GetTree(ctx, owner, name, ref, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get repository tree: %v", err)
+	}
+
+	// Look for .gitattributes in the tree
+	var gitAttributesSHA string
+	for _, entry := range tree.Entries {
+		if entry.GetPath() == ".gitattributes" && entry.GetType() == "blob" {
+			gitAttributesSHA = entry.GetSHA()
+			break
+		}
+	}
+
+	if gitAttributesSHA == "" {
+		return nil, fmt.Errorf(".gitattributes not found")
+	}
+
+	// Get the blob content
+	blob, _, err := restClient.Git.GetBlob(ctx, owner, name, gitAttributesSHA)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get .gitattributes blob: %v", err)
+	}
+
+	// Decode the content
+	content := blob.GetContent()
+	if blob.GetEncoding() == "base64" {
+		decoded, err := base64.StdEncoding.DecodeString(content)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode .gitattributes: %v", err)
+		}
+		content = string(decoded)
+	}
+
+	// Parse the .gitattributes file for LFS patterns
+	return parseLFSPatterns(content), nil
+}
+
+// parseLFSPatterns extracts file patterns that are tracked by LFS from .gitattributes content
+func parseLFSPatterns(content string) []string {
+	patterns := make([]string, 0)
+	lines := strings.Split(content, "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Look for lines containing "filter=lfs"
+		if strings.Contains(line, "filter=lfs") {
+			// Extract the pattern (everything before the first whitespace)
+			parts := strings.Fields(line)
+			if len(parts) > 0 {
+				pattern := parts[0]
+				patterns = append(patterns, pattern)
+			}
+		}
+	}
+
+	return patterns
+}
+
+// matchesLFSPattern checks if a file path matches any of the LFS patterns
+func matchesLFSPattern(filePath string, patterns []string) bool {
+	for _, pattern := range patterns {
+		// Handle different pattern types
+		if strings.HasPrefix(pattern, "*") {
+			// Extension pattern like "*.psd"
+			if strings.HasSuffix(filePath, strings.TrimPrefix(pattern, "*")) {
+				return true
+			}
+		} else if strings.Contains(pattern, "*") {
+			// Glob pattern - simple implementation
+			matched, _ := filepath.Match(pattern, filePath)
+			if matched {
+				return true
+			}
+			// Also try matching against the base name
+			matched, _ = filepath.Match(pattern, filepath.Base(filePath))
+			if matched {
+				return true
+			}
+		} else {
+			// Exact match or directory pattern
+			if filePath == pattern || strings.HasPrefix(filePath, pattern+"/") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// getLFSObjectsFallback is the original implementation that checks all small files
+// Used as a fallback when .gitattributes cannot be read
+func (api *GitHubAPI) getLFSObjectsFallback(ctx context.Context, restClient *github.Client, owner, name, ref, clientName string) ([]LFSObject, error) {
+	lfsObjects := make([]LFSObject, 0)
+	seenOIDs := make(map[string]bool)
+
+	// Get the repository tree recursively
+	tree, _, err := restClient.Git.GetTree(ctx, owner, name, ref, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get %s repository tree: %v", clientName, err)
 	}
@@ -131,6 +309,11 @@ func (api *GitHubAPI) GetLFSObjects(clientType ClientType, owner, name string) (
 				continue
 			}
 			content = string(decoded)
+		}
+
+		// If content is empty, skip
+		if strings.TrimSpace(content) == "" {
+			continue
 		}
 
 		// Check if this is an LFS pointer file
@@ -258,16 +441,23 @@ func (api *GitHubAPI) ValidateLFSObjects(clientType ClientType, owner, name stri
 	}
 
 	// Count successful and missing objects
+	// An object is considered "existing" only if:
+	// 1. It has no error, AND
+	// 2. It has download actions (which means the object is actually stored in LFS)
 	existingCount := 0
 	missingCount := 0
 
 	for _, obj := range batchResp.Objects {
 		if obj.Error != nil {
-			// Object has an error
+			// Object has an explicit error - definitely missing
 			missingCount++
-		} else {
-			// Object exists (may or may not have download actions)
+		} else if len(obj.Actions) > 0 && obj.Actions["download"].Href != "" {
+			// Object has download actions - it exists in LFS storage
 			existingCount++
+		} else {
+			// No error but also no download actions - object might not exist in LFS storage
+			// This can happen when the pointer exists but the actual object wasn't uploaded
+			missingCount++
 		}
 	}
 
