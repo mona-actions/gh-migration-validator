@@ -26,6 +26,7 @@ var expectedValidationMetrics = []string{
 	"Commits",
 	"Branch Protection Rules",
 	"Webhooks",
+	"LFS Objects",
 	"Latest Commit SHA",
 }
 
@@ -84,6 +85,7 @@ func TestValidateRepositoryData_PerfectMatch(t *testing.T) {
 		LatestCommitSHA:       "abc123",
 		BranchProtectionRules: 4,
 		Webhooks:              2,
+		LFSObjects:            5,
 	}
 
 	targetData := &RepositoryData{
@@ -97,6 +99,7 @@ func TestValidateRepositoryData_PerfectMatch(t *testing.T) {
 		LatestCommitSHA:       "abc123",
 		BranchProtectionRules: 4,
 		Webhooks:              2,
+		LFSObjects:            5,
 	}
 
 	validator := setupTestValidator(sourceData, targetData)
@@ -153,6 +156,7 @@ func TestValidateRepositoryData_MissingData(t *testing.T) {
 		LatestCommitSHA:       "abc123",
 		BranchProtectionRules: 4,
 		Webhooks:              3,
+		LFSObjects:            10,
 	}
 
 	targetData := &RepositoryData{
@@ -166,6 +170,7 @@ func TestValidateRepositoryData_MissingData(t *testing.T) {
 		LatestCommitSHA:       "def456",                                               // Different commit SHA
 		BranchProtectionRules: 3,                                                      // Missing 1 rule
 		Webhooks:              1,                                                      // Missing 2 webhooks
+		LFSObjects:            5,                                                      // Missing 5 LFS objects
 	}
 
 	validator := setupTestValidator(sourceData, targetData)
@@ -217,6 +222,7 @@ func TestValidateRepositoryData_ExtraData(t *testing.T) {
 		LatestCommitSHA:       "abc123",
 		BranchProtectionRules: 4,
 		Webhooks:              2,
+		LFSObjects:            5,
 	}
 
 	targetData := &RepositoryData{
@@ -230,6 +236,7 @@ func TestValidateRepositoryData_ExtraData(t *testing.T) {
 		LatestCommitSHA:       "abc123",                                               // Same commit SHA
 		BranchProtectionRules: 6,                                                      // 2 extra rules
 		Webhooks:              5,                                                      // 3 extra webhooks
+		LFSObjects:            8,                                                      // 3 extra LFS objects
 	}
 
 	validator := setupTestValidator(sourceData, targetData)

@@ -264,6 +264,7 @@ The tool compares the following metrics between source and target repositories:
 - **Commits**: Total commit count on default branch
 - **Branch Protection Rules**: Total count of branch protection rules configured for the repository
 - **Webhooks**: Total count of active repository webhooks
+- **LFS Objects**: Total count of Git LFS (Large File Storage) objects referenced in the repository
 - **Latest Commit SHA**: Ensures both repositories have the same latest commit in default branch
 
 ## Validation Results
@@ -293,7 +294,9 @@ Releases                               | ✅ PASS | 25                          
 Commits                                | ✅ PASS | 64                                       | 64                                       | Perfect match
 Branch Protection Rules                | ✅ PASS | 1                                        | 1                                        | Perfect match
 Webhooks                               | ✅ PASS | 0                                        | 0                                        | Perfect match
+LFS Objects                            | ✅ PASS | 15                                       | 15                                       | Perfect match
 Latest Commit SHA                      | ✅ PASS | d11552345ad4ffea894b59d9a4145a5119d77dba | d11552345ad4ffea894b59d9a4145a5119d77dba | N/A          
+```
 
 
 
