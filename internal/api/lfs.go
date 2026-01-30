@@ -33,9 +33,9 @@ type LFSBatchResponse struct {
 
 // LFSBatchObject represents a single object in the batch response
 type LFSBatchObject struct {
-	OID   string                `json:"oid"`
-	Size  int64                 `json:"size"`
-	Error *LFSBatchObjectError  `json:"error,omitempty"`
+	OID     string               `json:"oid"`
+	Size    int64                `json:"size"`
+	Error   *LFSBatchObjectError `json:"error,omitempty"`
 	Actions map[string]LFSAction `json:"actions,omitempty"`
 }
 
@@ -93,7 +93,7 @@ func (api *GitHubAPI) GetLFSObjects(clientType ClientType, owner, name string) (
 
 	lfsObjects := make([]LFSObject, 0)
 	seenOIDs := make(map[string]bool) // Track OIDs to deduplicate
-	
+
 	// Get the repository tree recursively
 	tree, _, err := restClient.Git.GetTree(ctx, owner, name, defaultBranch, true)
 	if err != nil {
@@ -200,7 +200,7 @@ func (api *GitHubAPI) ValidateLFSObjects(clientType ClientType, owner, name stri
 	}
 
 	config := getClientConfigForType(clientType)
-	
+
 	// Construct the LFS batch API URL
 	var lfsURL string
 	if config.Hostname != "" {
@@ -264,12 +264,7 @@ func (api *GitHubAPI) ValidateLFSObjects(clientType ClientType, owner, name stri
 	for _, obj := range batchResp.Objects {
 		if obj.Error != nil {
 			// Object has an error
-			if obj.Error.Code == 404 {
-				missingCount++
-			} else {
-				// Other errors (403, 500, etc.) are also considered missing/unavailable
-				missingCount++
-			}
+			missingCount++
 		} else {
 			// Object exists (may or may not have download actions)
 			existingCount++
