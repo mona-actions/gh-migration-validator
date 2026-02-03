@@ -67,6 +67,10 @@ The validation compares the same metrics as the standard validate command:
 		if markdownFile != "" {
 			os.Setenv("GHMV_MARKDOWN_FILE", markdownFile)
 		}
+		noLFS, _ := cmd.Flags().GetBool("no-lfs")
+		if noLFS {
+			os.Setenv("GHMV_NO_LFS", "true")
+		}
 
 		// Bind ENV variables in Viper (for optional parameters that can use env vars)
 		viper.BindEnv("TARGET_TOKEN")
@@ -76,6 +80,7 @@ The validation compares the same metrics as the standard validate command:
 		viper.BindEnv("TARGET_INSTALLATION_ID")
 		viper.BindEnv("MARKDOWN_TABLE")
 		viper.BindEnv("MARKDOWN_FILE")
+		viper.BindEnv("NO_LFS")
 
 		// Validate required parameters (using flag values directly for required flags)
 		if err := checkExportValidationVars(exportFile); err != nil {
@@ -138,6 +143,7 @@ func init() {
 
 	validateFromExportCmd.Flags().BoolP("markdown-table", "m", false, "Output results in markdown table format")
 	validateFromExportCmd.Flags().String("markdown-file", "", "Write markdown output to the specified file (optional)")
+	validateFromExportCmd.Flags().Bool("no-lfs", false, "Skip LFS object validation")
 }
 
 // checkExportValidationVars validates the configuration for validate-from-export command

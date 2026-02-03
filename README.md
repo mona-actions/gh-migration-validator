@@ -44,6 +44,21 @@ gh migration-validator \
   --markdown-file "validation-report.md"
 ```
 
+### Skipping LFS Validation
+
+If you want to skip LFS object validation (useful for large repositories or when LFS is not used), use the `--no-lfs` flag:
+
+```bash
+gh migration-validator \
+  --github-source-org "source-org" \
+  --github-target-org "target-org" \
+  --source-repo "my-repo" \
+  --target-repo "my-repo" \
+  --github-source-pat "ghp_xxx" \
+  --github-target-pat "ghp_yyy" \
+  --no-lfs
+```
+
 ### Environment Variables
 
 You can use environment variables instead of flags:
@@ -57,6 +72,7 @@ export GHMV_SOURCE_REPO="my-repo"
 export GHMV_TARGET_REPO="my-repo"
 export GHMV_MARKDOWN_TABLE="true"
 export GHMV_MARKDOWN_FILE="validation-report.md"
+export GHMV_NO_LFS="true"  # Optional: skip LFS validation
 
 gh migration-validator
 ```
@@ -124,6 +140,7 @@ The tool can also download and analyze migration archives to include additional 
 - `--download` (optional): Download and analyze migration archive automatically
 - `--download-path` (optional): Directory to download migration archives to (default: ./migration-archives)
 - `--archive-path` (optional): Path to an existing extracted migration archive directory
+- `--no-lfs` (optional): Skip LFS object validation
 
 **Note**: `--download` and `--archive-path` are mutually exclusive. For detailed migration archive usage, see [Migration Archive Documentation](docs/migration-archive.md).
 
@@ -209,6 +226,7 @@ gh migration-validator export \
 - `--target-hostname` (optional): GitHub Enterprise Server URL for target
 - `--markdown-table` (optional): Output results in markdown format
 - `--markdown-file` (optional): Write markdown output to the specified file; uses the same content without the surrounding ```markdown fences
+- `--no-lfs` (optional): Skip LFS object validation
 
 ### Environment Variables for Validate-from-Export
 
@@ -218,6 +236,7 @@ export GHMV_TARGET_TOKEN="ghp_yyy"
 export GHMV_TARGET_REPO="my-repo"
 export GHMV_MARKDOWN_TABLE="true"
 export GHMV_MARKDOWN_FILE="validation-report.md"
+export GHMV_NO_LFS="true"  # Optional: skip LFS validation
 
 gh migration-validator validate-from-export --export-file "path/to/export.json"
 ```
@@ -264,7 +283,7 @@ The tool compares the following metrics between source and target repositories:
 - **Commits**: Total commit count on default branch
 - **Branch Protection Rules**: Total count of branch protection rules configured for the repository
 - **Webhooks**: Total count of active repository webhooks
-- **LFS Objects**: Total count of Git LFS (Large File Storage) objects referenced in the repository
+- **LFS Objects**: Total count of Git LFS (Large File Storage) objects referenced in the repository (can be skipped with `--no-lfs` flag)
 - **Latest Commit SHA**: Ensures both repositories have the same latest commit in default branch
 
 ## Validation Results

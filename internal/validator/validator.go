@@ -296,16 +296,20 @@ func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.
 		successfulRequests++
 	}
 
-	// Get LFS object count
-	spinner.UpdateText(fmt.Sprintf("Fetching LFS objects from %s/%s...", owner, name))
-	sourceLFSObjects, err := mv.api.GetLFSObjects(api.SourceClient, owner, name)
-	if err != nil {
-		failedRequests = append(failedRequests, "LFS objects")
-		errorMessages = append(errorMessages, fmt.Sprintf("LFS objects: %v", err))
-		mv.SourceData.LFSObjects = 0
+	// Get LFS object count (skip if NO_LFS flag is set)
+	if !viper.GetBool("NO_LFS") {
+		spinner.UpdateText(fmt.Sprintf("Fetching LFS objects from %s/%s...", owner, name))
+		sourceLFSObjects, err := mv.api.GetLFSObjects(api.SourceClient, owner, name)
+		if err != nil {
+			failedRequests = append(failedRequests, "LFS objects")
+			errorMessages = append(errorMessages, fmt.Sprintf("LFS objects: %v", err))
+			mv.SourceData.LFSObjects = 0
+		} else {
+			mv.SourceData.LFSObjects = len(sourceLFSObjects)
+			successfulRequests++
+		}
 	} else {
-		mv.SourceData.LFSObjects = len(sourceLFSObjects)
-		successfulRequests++
+		mv.SourceData.LFSObjects = 0
 	}
 
 	duration := time.Since(startTime)
@@ -501,44 +505,48 @@ func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.
 		successfulRequests++
 	}
 
-	// Get LFS object count and validate them
-	spinner.UpdateText(fmt.Sprintf("Validating LFS objects in %s/%s...", owner, name))
+	// Get LFS object count and validate them (skip if NO_LFS flag is set)
+	if !viper.GetBool("NO_LFS") {
+		spinner.UpdateText(fmt.Sprintf("Validating LFS objects in %s/%s...", owner, name))
 
-	// First, get source LFS objects to validate against
-	sourceLFSObjects, sourceErr := mv.api.GetLFSObjects(api.SourceClient, mv.SourceData.Owner, mv.SourceData.Name)
-	if sourceErr != nil {
-		// If we can't get source LFS objects, fall back to just counting target objects
-		lfsObjects, err := mv.api.GetLFSObjectCount(api.TargetClient, owner, name)
-		if err != nil {
-			failedRequests = append(failedRequests, "LFS objects")
-			errorMessages = append(errorMessages, fmt.Sprintf("LFS objects: %v", err))
-			mv.TargetData.LFSObjects = 0
-		} else {
-			mv.TargetData.LFSObjects = lfsObjects
-			successfulRequests++
-		}
-	} else if len(sourceLFSObjects) > 0 {
-		// Validate that source LFS objects exist in target
-		existingCount, missingCount, err := mv.api.ValidateLFSObjects(api.TargetClient, owner, name, sourceLFSObjects)
-		if err != nil {
-			failedRequests = append(failedRequests, "LFS objects")
-			errorMessages = append(errorMessages, fmt.Sprintf("LFS objects validation: %v", err))
-			mv.TargetData.LFSObjects = 0
-		} else {
-			// Only count the objects that actually exist in target LFS storage
-			mv.TargetData.LFSObjects = existingCount
-			successfulRequests++
-
-			// Add a warning if some objects are missing
-			if missingCount > 0 {
-				warningMsg := fmt.Sprintf("LFS objects: %d found, %d missing from LFS storage", existingCount, missingCount)
-				errorMessages = append(errorMessages, warningMsg)
+		// First, get source LFS objects to validate against
+		sourceLFSObjects, sourceErr := mv.api.GetLFSObjects(api.SourceClient, mv.SourceData.Owner, mv.SourceData.Name)
+		if sourceErr != nil {
+			// If we can't get source LFS objects, fall back to just counting target objects
+			lfsObjects, err := mv.api.GetLFSObjectCount(api.TargetClient, owner, name)
+			if err != nil {
+				failedRequests = append(failedRequests, "LFS objects")
+				errorMessages = append(errorMessages, fmt.Sprintf("LFS objects: %v", err))
+				mv.TargetData.LFSObjects = 0
+			} else {
+				mv.TargetData.LFSObjects = lfsObjects
+				successfulRequests++
 			}
+		} else if len(sourceLFSObjects) > 0 {
+			// Validate that source LFS objects exist in target
+			existingCount, missingCount, err := mv.api.ValidateLFSObjects(api.TargetClient, owner, name, sourceLFSObjects)
+			if err != nil {
+				failedRequests = append(failedRequests, "LFS objects")
+				errorMessages = append(errorMessages, fmt.Sprintf("LFS objects validation: %v", err))
+				mv.TargetData.LFSObjects = 0
+			} else {
+				// Only count the objects that actually exist in target LFS storage
+				mv.TargetData.LFSObjects = existingCount
+				successfulRequests++
+
+				// Add a warning if some objects are missing
+				if missingCount > 0 {
+					warningMsg := fmt.Sprintf("LFS objects: %d found, %d missing from LFS storage", existingCount, missingCount)
+					errorMessages = append(errorMessages, warningMsg)
+				}
+			}
+		} else {
+			// No source LFS objects to validate
+			mv.TargetData.LFSObjects = 0
+			successfulRequests++
 		}
 	} else {
-		// No source LFS objects to validate
 		mv.TargetData.LFSObjects = 0
-		successfulRequests++
 	}
 
 	duration := time.Since(startTime)
@@ -683,18 +691,20 @@ func (mv *MigrationValidator) validateRepositoryData() []ValidationResult {
 		Difference: webhooksDiff,
 	})
 
-	// Compare LFS Objects
-	lfsDiff := mv.SourceData.LFSObjects - mv.TargetData.LFSObjects
-	lfsStatus, lfsStatusType := getValidationStatus(lfsDiff)
+	// Compare LFS Objects (skip if NO_LFS flag is set)
+	if !viper.GetBool("NO_LFS") {
+		lfsDiff := mv.SourceData.LFSObjects - mv.TargetData.LFSObjects
+		lfsStatus, lfsStatusType := getValidationStatus(lfsDiff)
 
-	results = append(results, ValidationResult{
-		Metric:     "LFS Objects",
-		SourceVal:  mv.SourceData.LFSObjects,
-		TargetVal:  mv.TargetData.LFSObjects,
-		Status:     lfsStatus,
-		StatusType: lfsStatusType,
-		Difference: lfsDiff,
-	})
+		results = append(results, ValidationResult{
+			Metric:     "LFS Objects",
+			SourceVal:  mv.SourceData.LFSObjects,
+			TargetVal:  mv.TargetData.LFSObjects,
+			Status:     lfsStatus,
+			StatusType: lfsStatusType,
+			Difference: lfsDiff,
+		})
+	}
 
 	// Compare Latest Commit SHA
 	latestCommitStatus := ValidationStatusMessagePass

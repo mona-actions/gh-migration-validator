@@ -962,3 +962,74 @@ func BenchmarkSetSourceDataFromExport(b *testing.B) {
 		validator.SetSourceDataFromExport(exportData)
 	}
 }
+
+func TestValidateRepositoryData_NoLFSFlag(t *testing.T) {
+	// Set the NO_LFS flag
+	viper.Set("NO_LFS", true)
+	defer viper.Set("NO_LFS", false) // Reset after test
+
+	sourceData := &RepositoryData{
+		Owner:                 "source-org",
+		Name:                  "test-repo",
+		Issues:                10,
+		PRs:                   &api.PRCounts{Total: 5, Open: 2, Merged: 2, Closed: 1},
+		Tags:                  3,
+		Releases:              2,
+		CommitCount:           100,
+		LatestCommitSHA:       "abc123",
+		BranchProtectionRules: 4,
+		Webhooks:              2,
+		LFSObjects:            5, // This should be ignored
+	}
+
+	targetData := &RepositoryData{
+		Owner:                 "target-org",
+		Name:                  "test-repo",
+		Issues:                11,
+		PRs:                   &api.PRCounts{Total: 5, Open: 2, Merged: 2, Closed: 1},
+		Tags:                  3,
+		Releases:              2,
+		CommitCount:           100,
+		LatestCommitSHA:       "abc123",
+		BranchProtectionRules: 4,
+		Webhooks:              2,
+		LFSObjects:            0, // Different from source, but should be ignored
+	}
+
+	validator := setupTestValidator(sourceData, targetData)
+	results := validator.validateRepositoryData()
+
+	// Verify that LFS Objects is NOT in the results
+	foundLFS := false
+	for _, result := range results {
+		if result.Metric == "LFS Objects" {
+			foundLFS = true
+			break
+		}
+	}
+
+	assert.False(t, foundLFS, "LFS Objects should not be validated when NO_LFS flag is set")
+
+	// Verify that we have one less metric than expected (minus LFS Objects)
+	assert.Equal(t, len(expectedValidationMetrics)-1, len(results),
+		"Should have one less validation metric when NO_LFS is set")
+
+	// Verify all other metrics are still present
+	expectedMetricsWithoutLFS := []string{
+		"Issues (expected +1 for migration log)",
+		"Pull Requests (Total)",
+		"Pull Requests (Open)",
+		"Pull Requests (Merged)",
+		"Tags",
+		"Releases",
+		"Commits",
+		"Branch Protection Rules",
+		"Webhooks",
+		"Latest Commit SHA",
+	}
+
+	for i, expectedMetric := range expectedMetricsWithoutLFS {
+		assert.Equal(t, expectedMetric, results[i].Metric,
+			"Metric at position %d should be %s", i, expectedMetric)
+	}
+}
