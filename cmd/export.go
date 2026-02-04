@@ -53,6 +53,7 @@ and allow you to select from multiple matches if available when downloading.`,
 		download, _ := cmd.Flags().GetBool("download")
 		downloadPath := cmd.Flag("download-path").Value.String()
 		archivePath := cmd.Flag("archive-path").Value.String()
+		noLFS, _ := cmd.Flags().GetBool("no-lfs")
 
 		// Only set ENV variables if flag values are provided (not empty)
 		if sourceOrganization != "" {
@@ -67,6 +68,9 @@ and allow you to select from multiple matches if available when downloading.`,
 		if sourceRepo != "" {
 			os.Setenv("GHMV_SOURCE_REPO", sourceRepo)
 		}
+		if noLFS {
+			os.Setenv("GHMV_NO_LFS", "true")
+		}
 
 		// Bind ENV variables in Viper
 		viper.BindEnv("SOURCE_ORGANIZATION")
@@ -76,6 +80,7 @@ and allow you to select from multiple matches if available when downloading.`,
 		viper.BindEnv("SOURCE_APP_ID")
 		viper.BindEnv("SOURCE_INSTALLATION_ID")
 		viper.BindEnv("SOURCE_REPO")
+		viper.BindEnv("NO_LFS")
 
 		// Validate required variables for export
 		if err := checkExportVars(); err != nil {
@@ -152,6 +157,8 @@ func init() {
 	exportCmd.Flags().StringP("download-path", "", "", "Directory to download migration archives to (default: ./migration-archives)")
 
 	exportCmd.Flags().StringP("archive-path", "p", "", "Path to an existing extracted migration archive directory (alternative to --download)")
+
+	exportCmd.Flags().Bool("no-lfs", false, "Skip LFS object validation")
 }
 
 // checkExportVars validates the configuration for export command
