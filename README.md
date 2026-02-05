@@ -73,8 +73,24 @@ export GHMV_TARGET_REPO="my-repo"
 export GHMV_MARKDOWN_TABLE="true"
 export GHMV_MARKDOWN_FILE="validation-report.md"
 export GHMV_NO_LFS="true"  # Optional: skip LFS validation
+export GHMV_STRICT_EXIT="true"  # Optional: exit with status 2 when validations fail
 
 gh migration-validator
+```
+
+### Strict Exit Mode
+
+Use strict exit mode when you need shell pipelines to detect validation failures. Enable it with the `--strict-exit` flag or set `GHMV_STRICT_EXIT=true` to return exit code 2 whenever any validation fails. Without this option the command exits 0 while still reporting failures in the output.
+
+```bash
+gh migration-validator \
+  --github-source-org "source-org" \
+  --github-target-org "target-org" \
+  --source-repo "my-repo" \
+  --target-repo "my-repo" \
+  --github-source-pat "ghp_xxx" \
+  --github-target-pat "ghp_yyy" \
+  --strict-exit
 ```
 
 ### GitHub App Authentication

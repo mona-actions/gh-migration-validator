@@ -25,6 +25,7 @@ func resetViperAndEnv() {
 		"GHMV_SOURCE_HOSTNAME",
 		"GHMV_MARKDOWN_TABLE",
 		"GHMV_MARKDOWN_FILE",
+		"GHMV_STRICT_EXIT",
 	}
 	for _, env := range envVars {
 		os.Unsetenv(env)
@@ -45,6 +46,7 @@ func setupViperWithFlags(cmd *cobra.Command) {
 	viper.BindPFlag("TARGET_REPO", cmd.Flags().Lookup("target-repo"))
 	viper.BindPFlag("MARKDOWN_TABLE", cmd.Flags().Lookup("markdown-table"))
 	viper.BindPFlag("MARKDOWN_FILE", cmd.Flags().Lookup("markdown-file"))
+	viper.BindPFlag("STRICT_EXIT", cmd.Flags().Lookup("strict-exit"))
 }
 
 // createTestCommand creates a fresh command with all flags for testing
@@ -65,6 +67,7 @@ func createTestCommand() *cobra.Command {
 	cmd.Flags().StringP("target-repo", "", "", "Target repo")
 	cmd.Flags().BoolP("markdown-table", "m", false, "Markdown table")
 	cmd.Flags().String("markdown-file", "", "Markdown output file")
+	cmd.Flags().Bool("strict-exit", false, "Strict exit")
 
 	return cmd
 }
