@@ -520,6 +520,26 @@ func TestValidationResult_CommitSHAComparison(t *testing.T) {
 	}
 }
 
+func TestHasFailures(t *testing.T) {
+	t.Run("returns true when failures present", func(t *testing.T) {
+		results := []ValidationResult{
+			{StatusType: ValidationStatusPass},
+			{StatusType: ValidationStatusFail},
+		}
+
+		assert.True(t, HasFailures(results))
+	})
+
+	t.Run("returns false when no failures present", func(t *testing.T) {
+		results := []ValidationResult{
+			{StatusType: ValidationStatusPass},
+			{StatusType: ValidationStatusWarn},
+		}
+
+		assert.False(t, HasFailures(results))
+	})
+}
+
 func TestValidateRepositoryData_MetricNames(t *testing.T) {
 	// Test that validateRepositoryData returns exactly the expected metrics with correct names
 	validator := setupTestValidator(

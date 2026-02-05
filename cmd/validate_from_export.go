@@ -120,6 +120,10 @@ The validation compares the same metrics as the standard validate command:
 
 		// Display results using existing method
 		migrationValidator.PrintValidationResults(results)
+
+		if viper.GetBool("STRICT_EXIT") && validator.HasFailures(results) {
+			os.Exit(2)
+		}
 	},
 }
 

@@ -76,6 +76,17 @@ type ValidationResult struct {
 	Difference int              // How many items are missing in target (negative if target has more)
 }
 
+// HasFailures reports whether any validation result failed so callers can set exit codes accurately.
+func HasFailures(results []ValidationResult) bool {
+	for _, result := range results {
+		if result.StatusType == ValidationStatusFail {
+			return true
+		}
+	}
+
+	return false
+}
+
 // MigrationValidator handles the validation of GitHub organization migrations
 type MigrationValidator struct {
 	api        *api.GitHubAPI

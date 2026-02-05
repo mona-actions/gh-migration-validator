@@ -52,6 +52,10 @@ between source and target organizations.`,
 
 		// Print the validation results - always report what we found
 		migrationValidator.PrintValidationResults(results)
+
+		if viper.GetBool("STRICT_EXIT") && validator.HasFailures(results) {
+			os.Exit(2)
+		}
 	},
 }
 
@@ -77,6 +81,7 @@ func init() {
 	rootCmd.Flags().BoolP("markdown-table", "m", false, "Print results as a markdown table")
 	rootCmd.Flags().String("markdown-file", "", "Write markdown output to the specified file (optional)")
 	rootCmd.Flags().Bool("no-lfs", false, "Skip LFS object validation")
+	rootCmd.PersistentFlags().Bool("strict-exit", false, "Exit with status 2 when validations fail")
 
 	// Set environment variable prefix: GHMV (GitHub Migration Validator)
 	viper.SetEnvPrefix("GHMV")
@@ -94,6 +99,7 @@ func init() {
 	viper.BindPFlag("MARKDOWN_TABLE", rootCmd.Flags().Lookup("markdown-table"))
 	viper.BindPFlag("MARKDOWN_FILE", rootCmd.Flags().Lookup("markdown-file"))
 	viper.BindPFlag("NO_LFS", rootCmd.Flags().Lookup("no-lfs"))
+	viper.BindPFlag("STRICT_EXIT", rootCmd.PersistentFlags().Lookup("strict-exit"))
 
 	// Bind environment variables explicitly for additional app authentication options
 	viper.BindEnv("SOURCE_PRIVATE_KEY")
@@ -103,6 +109,7 @@ func init() {
 	viper.BindEnv("TARGET_APP_ID")
 	viper.BindEnv("TARGET_INSTALLATION_ID")
 	viper.BindEnv("MARKDOWN_FILE")
+	viper.BindEnv("STRICT_EXIT")
 }
 
 // requiredConfig defines a required configuration with its flag and env var names
