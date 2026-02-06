@@ -1205,7 +1205,7 @@ func TestGitHubAPI_GetWebhookCount(t *testing.T) {
 			expectedError: false,
 		},
 		{
-			name:       "mixed active and inactive webhooks - only counts active",
+			name:       "mixed active and inactive webhooks - counts all",
 			clientType: SourceClient,
 			owner:      "testowner",
 			repo:       "testrepo",
@@ -1241,7 +1241,7 @@ func TestGitHubAPI_GetWebhookCount(t *testing.T) {
 					}
 				}
 			]`,
-			expectedCount: 2,
+			expectedCount: 3,
 			expectedError: false,
 		},
 	}
