@@ -65,7 +65,7 @@ You can use environment variables instead of flags:
 
 ```bash
 export GHMV_SOURCE_ORGANIZATION="source-org"
-export GHMV_TARGET_ORGANIZATION="target-org" 
+export GHMV_TARGET_ORGANIZATION="target-org"
 export GHMV_SOURCE_TOKEN="ghp_xxx"
 export GHMV_TARGET_TOKEN="ghp_yyy"
 export GHMV_SOURCE_REPO="my-repo"
@@ -103,7 +103,7 @@ export GHMV_SOURCE_APP_ID="123456"
 export GHMV_SOURCE_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n..."
 export GHMV_SOURCE_INSTALLATION_ID="987654"
 
-# Target GitHub App  
+# Target GitHub App
 export GHMV_TARGET_APP_ID="123457"
 export GHMV_TARGET_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n..."
 export GHMV_TARGET_INSTALLATION_ID="987655"
@@ -148,7 +148,7 @@ The tool can also download and analyze migration archives to include additional 
 ### Export Options
 
 - `--github-source-org` (required): Source organization name
-- `--source-repo` (required): Source repository name  
+- `--source-repo` (required): Source repository name
 - `--github-source-pat` (required): GitHub token with read permissions
 - `--source-hostname` (optional): GitHub Enterprise Server URL
 - `--format` (optional): Export format - `json` or `csv` (default: `json`)
@@ -173,7 +173,7 @@ The tool can also download and analyze migration archives to include additional 
     "issues": 42,
     "pull_requests": {
       "open": 5,
-      "closed": 10, 
+      "closed": 10,
       "merged": 15,
       "total": 30
     },
@@ -187,7 +187,7 @@ The tool can also download and analyze migration archives to include additional 
   "migration_archive": {
     "issues": 42,
     "pull_requests": 30,
-    "protected_branches" : 1,
+    "protected_branches": 1,
     "releases": 3
   }
 }
@@ -282,6 +282,70 @@ gh migration-validator validate-from-export --export-file "path/to/export.json"
 
 This ensures you're validating against the exact state of the source repository when the migration occurred, regardless of any subsequent changes.
 
+## Bitbucket Validation
+
+The `bitbucket` subcommand validates migrations from Bitbucket (Server / Data Center) to GitHub by comparing API metrics between the source Bitbucket instance and the target GitHub repository. This is useful for verifying that repository data was migrated correctly when moving from Bitbucket to GitHub.
+
+### Bitbucket Usage
+
+```bash
+gh migration-validator bitbucket \
+  --bbs-server-url "https://bitbucket.example.com" \
+  --bbs-project "PROJ" \
+  --bbs-repo "my-repo" \
+  --bbs-token "your-bbs-token" \
+  --github-target-org "target-org" \
+  --target-repo "my-repo" \
+  --github-target-pat "ghp_yyy"
+```
+
+### Environment Variables for Bitbucket
+
+```bash
+export GHMV_BBS_SERVER_URL="https://bitbucket.example.com"
+export GHMV_BBS_PROJECT="PROJ"
+export GHMV_BBS_REPO="my-repo"
+export GHMV_BBS_TOKEN="your-bbs-token"
+export GHMV_TARGET_TOKEN="ghp_yyy"
+
+gh migration-validator bitbucket \
+  --github-target-org "target-org" \
+  --target-repo "my-repo"
+```
+
+### Bitbucket Options
+
+- `--bbs-server-url` / `-H` (required): Bitbucket Server URL (aligned with GEI bbs2gh)
+- `--bbs-project` / `-p` (required): Project key (use `~username` for personal repos)
+- `--bbs-repo` / `-r` (required): Repository slug
+- `--bbs-token` / `-k`: Personal access token (or use `GHMV_BBS_TOKEN` env var)
+- `--github-target-org` / `-t` (required): Target GitHub organization
+- `--github-target-pat` / `-b`: Target GitHub token
+- `--target-hostname` / `-v`: GitHub Enterprise Server URL (optional)
+- `--target-repo` (required): Target repository name
+- `--markdown-table` / `-m`: Output results in markdown format
+- `--markdown-file`: Write markdown output to the specified file
+- `--strict-exit`: Exit with status 2 on validation failures
+
+### What Gets Validated (Bitbucket → GitHub)
+
+| Metric                                               | Status      | Notes                                         |
+| ---------------------------------------------------- | ----------- | --------------------------------------------- |
+| Pull Requests (Total, Open, Merged, Declined→Closed) | ✅ Compared | Bitbucket "Declined" maps to GitHub "Closed"  |
+| Tags                                                 | ✅ Compared |                                               |
+| Commits                                              | ✅ Compared | Default branch only                           |
+| Latest Commit SHA                                    | ✅ Compared |                                               |
+| Branch Permissions vs Branch Protection Rules        | ℹ️ Advisory | Different concepts — shown for reference only |
+| Webhooks                                             | ✅ Compared |                                               |
+| Issues                                               | ⏭️ Skipped  | Bitbucket uses Jira, not native issues        |
+| Releases                                             | ⏭️ Skipped  | Bitbucket has no equivalent                   |
+| LFS Objects                                          | ⏭️ Skipped  | TODO                                          |
+
+### Bitbucket Notes
+
+- Requires Bitbucket Server 5.5+ (uses Bearer token PAT authentication)
+- The branch permissions comparison is advisory only (ℹ️ INFO) since Bitbucket branch permissions and GitHub branch protection rules are fundamentally different concepts
+
 ## Migration Archive Support
 
 The tool supports working with GitHub migration archives for enhanced validation capabilities. Migration archives provide three-way validation comparing Source API ↔ Archive ↔ Target API data.
@@ -319,47 +383,43 @@ Example:
 ```markdown
 # 🔄 Source vs Target Validation
 
-Metric                                 | Status  | Source Value                             | Target Value                             | Difference   
-Issues (expected +1 for migration log) | ⚠️ WARN  | 2 (expected target: 3)                   | 7                                        | Extra: 4     
-Pull Requests (Total)                  | ✅ PASS | 29                                       | 29                                       | Perfect match
-Pull Requests (Open)                   | ✅ PASS | 0                                        | 0                                        | Perfect match
-Pull Requests (Merged)                 | ✅ PASS | 27                                       | 27                                       | Perfect match
-Tags                                   | ✅ PASS | 25                                       | 25                                       | Perfect match
-Releases                               | ✅ PASS | 25                                       | 25                                       | Perfect match
-Commits                                | ✅ PASS | 64                                       | 64                                       | Perfect match
-Branch Protection Rules                | ✅ PASS | 1                                        | 1                                        | Perfect match
-Webhooks                               | ✅ PASS | 0                                        | 0                                        | Perfect match
-LFS Objects                            | ✅ PASS | 15                                       | 15                                       | Perfect match
-Latest Commit SHA                      | ✅ PASS | d11552345ad4ffea894b59d9a4145a5119d77dba | d11552345ad4ffea894b59d9a4145a5119d77dba | N/A          
+Metric | Status | Source Value | Target Value | Difference  
+Issues (expected +1 for migration log) | ⚠️ WARN | 2 (expected target: 3) | 7 | Extra: 4  
+Pull Requests (Total) | ✅ PASS | 29 | 29 | Perfect match
+Pull Requests (Open) | ✅ PASS | 0 | 0 | Perfect match
+Pull Requests (Merged) | ✅ PASS | 27 | 27 | Perfect match
+Tags | ✅ PASS | 25 | 25 | Perfect match
+Releases | ✅ PASS | 25 | 25 | Perfect match
+Commits | ✅ PASS | 64 | 64 | Perfect match
+Branch Protection Rules | ✅ PASS | 1 | 1 | Perfect match
+Webhooks | ✅ PASS | 0 | 0 | Perfect match
+LFS Objects | ✅ PASS | 15 | 15 | Perfect match
+Latest Commit SHA | ✅ PASS | d11552345ad4ffea894b59d9a4145a5119d77dba | d11552345ad4ffea894b59d9a4145a5119d77dba | N/A
 ```
-
-
 
 # 📦 Migration Archive vs Source Validation
 
-Metric                               | Status  | Source API Value | Archive Value | Difference   
-Archive vs Source Issues             | ❌ FAIL | 2                | 6             | Missing: 4   
-Archive vs Source Pull Requests      | ✅ PASS | 29               | 29            | Perfect match
-Archive vs Source Protected Branches | ✅ PASS | 1                | 1             | Perfect match
-Archive vs Source Releases           | ✅ PASS | 25               | 25            | Perfect match
-
-
+Metric | Status | Source API Value | Archive Value | Difference  
+Archive vs Source Issues | ❌ FAIL | 2 | 6 | Missing: 4  
+Archive vs Source Pull Requests | ✅ PASS | 29 | 29 | Perfect match
+Archive vs Source Protected Branches | ✅ PASS | 1 | 1 | Perfect match
+Archive vs Source Releases | ✅ PASS | 25 | 25 | Perfect match
 
 # 🎯 Migration Archive vs Target Validation
 
-Metric                                                   | Status  | Archive Value          | Target Value | Difference   
-Archive vs Target Issues (expected +1 for migration log) | ✅ PASS | 6 (expected target: 7) | 7            | Perfect match
-Archive vs Target Pull Requests                          | ✅ PASS | 29                     | 29           | Perfect match
-Archive vs Target Protected Branches                     | ✅ PASS | 1                      | 1            | Perfect match
-Archive vs Target Releases                               | ✅ PASS | 25                     | 25           | Perfect match
-
+```
+Metric | Status | Archive Value | Target Value | Difference
+Archive vs Target Issues (expected +1 for migration log) | ✅ PASS | 6 (expected target: 7) | 7 | Perfect match
+Archive vs Target Pull Requests | ✅ PASS | 29 | 29 | Perfect match
+Archive vs Target Protected Branches | ✅ PASS | 1 | 1 | Perfect match
+Archive vs Target Releases | ✅ PASS | 25 | 25 | Perfect match
 
 📊 Passed: 16
 📊 Failed: 1
 📊 Warnings: 1
 
+ERROR ❌ Migration validation FAILED - Some data is missing in target
 
-ERROR   ❌ Migration validation FAILED - Some data is missing in target
 ```
 
 ### Markdown Output
