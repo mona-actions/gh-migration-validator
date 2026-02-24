@@ -30,7 +30,10 @@ const (
 	ValidationStatusPass ValidationStatus = iota
 	ValidationStatusFail
 	ValidationStatusWarn
+	ValidationStatusInfo // Advisory status, doesn't affect pass/fail summary
 )
+
+const ValidationStatusMessageInfo = "ℹ️ INFO"
 
 // MigrationLogIssueOffset represents the additional issue created during migration
 const MigrationLogIssueOffset = 1
@@ -115,7 +118,7 @@ func (mv *MigrationValidator) ValidateMigration(sourceOwner, sourceRepo, targetO
 	}
 
 	// Check rate limits before starting - warn if low
-	mv.checkAndWarnRateLimits()
+	mv.checkAndWarnRateLimits(true)
 
 	fmt.Println("Starting migration validation...")
 	fmt.Printf("Source: %s/%s | Target: %s/%s\n", sourceOwner, sourceRepo, targetOwner, targetRepo)
@@ -176,21 +179,23 @@ func (mv *MigrationValidator) ValidateMigration(sourceOwner, sourceRepo, targetO
 	return results, nil
 }
 
-// checks rate limits for both source and target clients (configurable via RATE_LIMIT_THRESHOLD env var, default 50).
-// Set threshold to 0 to disable rate limit warnings.
-func (mv *MigrationValidator) checkAndWarnRateLimits() {
+// checkAndWarnRateLimits checks GitHub API rate limits before starting validation.
+// Only checks rate limits for the clients that are actually in use (configurable via
+// RATE_LIMIT_THRESHOLD env var, default 50). Set threshold to 0 to disable warnings.
+func (mv *MigrationValidator) checkAndWarnRateLimits(checkSource bool) {
 	viper.SetDefault("RATE_LIMIT_THRESHOLD", 50)
 	threshold := viper.GetInt("RATE_LIMIT_THRESHOLD")
 
-	sourceRL, sourceErr := mv.api.GetRateLimitStatus(api.SourceClient)
-	targetRL, targetErr := mv.api.GetRateLimitStatus(api.TargetClient)
-
-	if sourceErr != nil {
-		pterm.DefaultLogger.Warn("Source API rate limit check failed", pterm.DefaultLogger.Args("error", sourceErr.Error()))
-	} else {
-		output.LogRateLimitWarning("Source", sourceRL.Remaining, sourceRL.ResetAt, threshold)
+	if checkSource {
+		sourceRL, sourceErr := mv.api.GetRateLimitStatus(api.SourceClient)
+		if sourceErr != nil {
+			pterm.DefaultLogger.Warn("Source API rate limit check failed", pterm.DefaultLogger.Args("error", sourceErr.Error()))
+		} else {
+			output.LogRateLimitWarning("Source", sourceRL.Remaining, sourceRL.ResetAt, threshold)
+		}
 	}
 
+	targetRL, targetErr := mv.api.GetRateLimitStatus(api.TargetClient)
 	if targetErr != nil {
 		pterm.DefaultLogger.Warn("Target API rate limit check failed", pterm.DefaultLogger.Args("error", targetErr.Error()))
 	} else {
@@ -360,6 +365,21 @@ func (mv *MigrationValidator) SetSourceDataFromExport(exportData *RepositoryData
 	mv.SourceData = &sourceDataCopy
 }
 
+// ValidationOptions controls which validations are performed and how
+type ValidationOptions struct {
+	SkipIssues                bool   // BBS has no native issues
+	SkipReleases              bool   // BBS has no releases
+	SkipLFS                   bool   // Skip LFS validation
+	SkipMigrationLogOffset    bool   // Don't add +1 for migration log issue
+	BranchPermissionsAdvisory bool   // Show as INFO instead of PASS/FAIL
+	SourceLabel               string // "Source" vs "Bitbucket" for display
+}
+
+// SetSourceData sets the source data from an external source (BBS, export, etc.)
+func (mv *MigrationValidator) SetSourceData(data *RepositoryData) {
+	mv.SetSourceDataFromExport(data)
+}
+
 // ValidateFromExport performs validation against target using pre-loaded source data from export
 func (mv *MigrationValidator) ValidateFromExport(targetOwner, targetRepo string) ([]ValidationResult, error) {
 	// Validate that source data is already loaded
@@ -378,8 +398,8 @@ func (mv *MigrationValidator) ValidateFromExport(targetOwner, targetRepo string)
 		return nil, fmt.Errorf("cannot access target repository %s/%s: %w", targetOwner, targetRepo, err)
 	}
 
-	// Check rate limits before starting - warn if low
-	mv.checkAndWarnRateLimits()
+	// Check rate limits before starting - warn if low (target only, source is from export)
+	mv.checkAndWarnRateLimits(false)
 
 	fmt.Println("Starting migration validation from export...")
 	fmt.Printf("Source: %s/%s (from export) | Target: %s/%s\n",
@@ -404,6 +424,252 @@ func (mv *MigrationValidator) ValidateFromExport(targetOwner, targetRepo string)
 
 	fmt.Println("Migration validation completed!")
 	return results, nil
+}
+
+// ValidateWithOptions performs validation against target using pre-loaded source data with configurable options.
+// This supports BBS migrations where certain metrics (issues, releases, LFS) should be skipped
+// and branch permissions should be advisory-only.
+func (mv *MigrationValidator) ValidateWithOptions(targetOwner, targetRepo string, opts ValidationOptions) ([]ValidationResult, error) {
+	// Validate that source data is already loaded
+	if mv.SourceData == nil || mv.SourceData.Owner == "" || mv.SourceData.Name == "" {
+		return nil, fmt.Errorf("source data not properly loaded - call SetSourceData or SetSourceDataFromExport with valid data first")
+	}
+
+	// Normalize source data to prevent nil pointer dereferences
+	if mv.SourceData.PRs == nil {
+		mv.SourceData.PRs = &api.PRCounts{Total: 0, Open: 0, Merged: 0, Closed: 0}
+	}
+
+	// Temporarily set NO_LFS in viper so retrieveTarget skips LFS fetching.
+	// Save and restore the previous value to avoid polluting global state.
+	previousNoLFS := viper.GetBool("NO_LFS")
+	if opts.SkipLFS {
+		viper.Set("NO_LFS", true)
+	}
+	defer viper.Set("NO_LFS", previousNoLFS)
+
+	// Validate access to target repository before starting
+	fmt.Println("Validating repository access...")
+	if err := mv.api.ValidateRepoAccess(api.TargetClient, targetOwner, targetRepo); err != nil {
+		return nil, fmt.Errorf("cannot access target repository %s/%s: %w", targetOwner, targetRepo, err)
+	}
+
+	// Check rate limits before starting - warn if low (target only, source is non-GitHub)
+	mv.checkAndWarnRateLimits(false)
+
+	sourceLabel := "from export"
+	if opts.SourceLabel != "" {
+		sourceLabel = "from " + opts.SourceLabel
+	}
+
+	fmt.Println("Starting migration validation with options...")
+	fmt.Printf("Source: %s/%s (%s) | Target: %s/%s\n",
+		mv.SourceData.Owner, mv.SourceData.Name, sourceLabel, targetOwner, targetRepo)
+
+	// Create a spinner for target data retrieval
+	spinner, _ := pterm.DefaultSpinner.Start(fmt.Sprintf("Fetching target data from %s/%s...", targetOwner, targetRepo))
+
+	// Retrieve target data using existing functionality
+	errorMsgs, err := mv.retrieveTarget(targetOwner, targetRepo, spinner)
+
+	// Log any API errors (safe to call after spinner finishes)
+	output.LogAPIErrors(errorMsgs, targetOwner, targetRepo, err)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve target data: %w", err)
+	}
+
+	// Compare and validate the data with options
+	fmt.Println("\nValidating migration data...")
+	results := mv.validateRepositoryDataWithOptions(opts)
+
+	fmt.Println("Migration validation completed!")
+	return results, nil
+}
+
+// validateRepositoryDataWithOptions compares source and target repository data with configurable skip/advisory options.
+// This is used by BBS migrations where certain metrics don't apply and branch permissions are advisory.
+func (mv *MigrationValidator) validateRepositoryDataWithOptions(opts ValidationOptions) []ValidationResult {
+	fmt.Println("Comparing repository data...")
+
+	var results []ValidationResult
+
+	// Compare Issues (skip for BBS since it has no native issues)
+	if !opts.SkipIssues {
+		expectedTargetIssues := mv.SourceData.Issues
+		metricLabel := "Issues"
+		if !opts.SkipMigrationLogOffset {
+			expectedTargetIssues += MigrationLogIssueOffset
+			metricLabel = "Issues (expected +1 for migration log)"
+		}
+		issueDiff := expectedTargetIssues - mv.TargetData.Issues
+		issueStatus, issueStatusType := getValidationStatus(issueDiff)
+
+		results = append(results, ValidationResult{
+			Metric:     metricLabel,
+			SourceVal:  mv.SourceData.Issues,
+			TargetVal:  mv.TargetData.Issues,
+			Status:     issueStatus,
+			StatusType: issueStatusType,
+			Difference: issueDiff,
+		})
+	}
+
+	// Compare Total PRs
+	prDiff := mv.SourceData.PRs.Total - mv.TargetData.PRs.Total
+	prStatus, prStatusType := getValidationStatus(prDiff)
+
+	results = append(results, ValidationResult{
+		Metric:     "Pull Requests (Total)",
+		SourceVal:  mv.SourceData.PRs.Total,
+		TargetVal:  mv.TargetData.PRs.Total,
+		Status:     prStatus,
+		StatusType: prStatusType,
+		Difference: prDiff,
+	})
+
+	// Compare Open PRs
+	openPRDiff := mv.SourceData.PRs.Open - mv.TargetData.PRs.Open
+	openPRStatus, openPRStatusType := getValidationStatus(openPRDiff)
+
+	results = append(results, ValidationResult{
+		Metric:     "Pull Requests (Open)",
+		SourceVal:  mv.SourceData.PRs.Open,
+		TargetVal:  mv.TargetData.PRs.Open,
+		Status:     openPRStatus,
+		StatusType: openPRStatusType,
+		Difference: openPRDiff,
+	})
+
+	// Compare Merged PRs
+	mergedPRDiff := mv.SourceData.PRs.Merged - mv.TargetData.PRs.Merged
+	mergedPRStatus, mergedPRStatusType := getValidationStatus(mergedPRDiff)
+
+	results = append(results, ValidationResult{
+		Metric:     "Pull Requests (Merged)",
+		SourceVal:  mv.SourceData.PRs.Merged,
+		TargetVal:  mv.TargetData.PRs.Merged,
+		Status:     mergedPRStatus,
+		StatusType: mergedPRStatusType,
+		Difference: mergedPRDiff,
+	})
+
+	// Compare Tags
+	tagDiff := mv.SourceData.Tags - mv.TargetData.Tags
+	tagStatus, tagStatusType := getValidationStatus(tagDiff)
+
+	results = append(results, ValidationResult{
+		Metric:     "Tags",
+		SourceVal:  mv.SourceData.Tags,
+		TargetVal:  mv.TargetData.Tags,
+		Status:     tagStatus,
+		StatusType: tagStatusType,
+		Difference: tagDiff,
+	})
+
+	// Compare Releases (skip for BBS since it has no releases)
+	if !opts.SkipReleases {
+		releaseDiff := mv.SourceData.Releases - mv.TargetData.Releases
+		releaseStatus, releaseStatusType := getValidationStatus(releaseDiff)
+
+		results = append(results, ValidationResult{
+			Metric:     "Releases",
+			SourceVal:  mv.SourceData.Releases,
+			TargetVal:  mv.TargetData.Releases,
+			Status:     releaseStatus,
+			StatusType: releaseStatusType,
+			Difference: releaseDiff,
+		})
+	}
+
+	// Compare Commit Count
+	commitDiff := mv.SourceData.CommitCount - mv.TargetData.CommitCount
+	commitStatus, commitStatusType := getValidationStatus(commitDiff)
+
+	results = append(results, ValidationResult{
+		Metric:     "Commits",
+		SourceVal:  mv.SourceData.CommitCount,
+		TargetVal:  mv.TargetData.CommitCount,
+		Status:     commitStatus,
+		StatusType: commitStatusType,
+		Difference: commitDiff,
+	})
+
+	// Compare Branch Protection Rules (advisory for BBS)
+	branchProtectionDiff := mv.SourceData.BranchProtectionRules - mv.TargetData.BranchProtectionRules
+	if opts.BranchPermissionsAdvisory {
+		// BBS branch permissions are not directly comparable to GitHub branch protection rules,
+		// so we show them as INFO (advisory) rather than PASS/FAIL
+		results = append(results, ValidationResult{
+			Metric:     "Branch Protection Rules (advisory)",
+			SourceVal:  mv.SourceData.BranchProtectionRules,
+			TargetVal:  mv.TargetData.BranchProtectionRules,
+			Status:     ValidationStatusMessageInfo,
+			StatusType: ValidationStatusInfo,
+			Difference: branchProtectionDiff,
+		})
+	} else {
+		branchProtectionStatus, branchProtectionStatusType := getValidationStatus(branchProtectionDiff)
+		results = append(results, ValidationResult{
+			Metric:     "Branch Protection Rules",
+			SourceVal:  mv.SourceData.BranchProtectionRules,
+			TargetVal:  mv.TargetData.BranchProtectionRules,
+			Status:     branchProtectionStatus,
+			StatusType: branchProtectionStatusType,
+			Difference: branchProtectionDiff,
+		})
+	}
+
+	// Compare Webhooks
+	webhooksDiff := mv.SourceData.Webhooks - mv.TargetData.Webhooks
+	webhooksStatus, webhooksStatusType := getValidationStatus(webhooksDiff)
+
+	results = append(results, ValidationResult{
+		Metric:     "Webhooks",
+		SourceVal:  mv.SourceData.Webhooks,
+		TargetVal:  mv.TargetData.Webhooks,
+		Status:     webhooksStatus,
+		StatusType: webhooksStatusType,
+		Difference: webhooksDiff,
+	})
+
+	// Compare LFS Objects (skip if opts.SkipLFS or NO_LFS flag is set)
+	if !opts.SkipLFS && !viper.GetBool("NO_LFS") {
+		lfsDiff := mv.SourceData.LFSObjects - mv.TargetData.LFSObjects
+		lfsStatus, lfsStatusType := getValidationStatus(lfsDiff)
+
+		results = append(results, ValidationResult{
+			Metric:     "LFS Objects",
+			SourceVal:  mv.SourceData.LFSObjects,
+			TargetVal:  mv.TargetData.LFSObjects,
+			Status:     lfsStatus,
+			StatusType: lfsStatusType,
+			Difference: lfsDiff,
+		})
+	}
+
+	// Compare Latest Commit SHA
+	latestCommitStatus := ValidationStatusMessagePass
+	latestCommitStatusType := ValidationStatusPass
+
+	if mv.SourceData.LatestCommitSHA != mv.TargetData.LatestCommitSHA {
+		latestCommitStatus = ValidationStatusMessageFail
+		latestCommitStatusType = ValidationStatusFail
+	}
+
+	results = append(results, ValidationResult{
+		Metric:     "Latest Commit SHA",
+		SourceVal:  mv.SourceData.LatestCommitSHA,
+		TargetVal:  mv.TargetData.LatestCommitSHA,
+		Status:     latestCommitStatus,
+		StatusType: latestCommitStatusType,
+		Difference: 0, // Not applicable for SHA comparison
+	})
+
+	// Note: Migration archive comparisons are skipped for options-based validation
+	// since BBS migrations don't use GitHub migration archives
+
+	return results
 }
 
 // retrieveTarget retrieves all repository data from the target repository.
@@ -944,6 +1210,7 @@ func (mv *MigrationValidator) displayValidationSummary(results []ValidationResul
 	passCount := 0
 	failCount := 0
 	warnCount := 0
+	infoCount := 0
 
 	for _, result := range results {
 		switch result.StatusType {
@@ -953,6 +1220,8 @@ func (mv *MigrationValidator) displayValidationSummary(results []ValidationResul
 			failCount++
 		case ValidationStatusWarn:
 			warnCount++
+		case ValidationStatusInfo:
+			infoCount++
 		}
 	}
 
@@ -963,11 +1232,17 @@ func (mv *MigrationValidator) displayValidationSummary(results []ValidationResul
 		{Level: 0, Text: fmt.Sprintf("Warnings: %d", warnCount), TextStyle: pterm.NewStyle(pterm.FgYellow)},
 	}
 
+	if infoCount > 0 {
+		summaryData = append(summaryData, pterm.BulletListItem{
+			Level: 0, Text: fmt.Sprintf("Info: %d", infoCount), TextStyle: pterm.NewStyle(pterm.FgCyan),
+		})
+	}
+
 	pterm.DefaultBulletList.WithItems(summaryData).WithBullet("📊").Render()
 
 	fmt.Println() // Add spacing
 
-	// Final status with prominent styling
+	// Final status with prominent styling (INFO does not affect pass/fail)
 	if failCount > 0 {
 		pterm.Error.Println("❌ Migration validation FAILED - Some data is missing in target")
 	} else if warnCount > 0 {
@@ -1040,6 +1315,7 @@ func (mv *MigrationValidator) printMarkdownTable(results []ValidationResult, opt
 	passCount := 0
 	failCount := 0
 	warnCount := 0
+	infoCount := 0
 
 	for _, result := range results {
 		switch result.StatusType {
@@ -1049,6 +1325,8 @@ func (mv *MigrationValidator) printMarkdownTable(results []ValidationResult, opt
 			failCount++
 		case ValidationStatusWarn:
 			warnCount++
+		case ValidationStatusInfo:
+			infoCount++
 		}
 	}
 
@@ -1057,7 +1335,11 @@ func (mv *MigrationValidator) printMarkdownTable(results []ValidationResult, opt
 	fmt.Fprintln(writer)
 	fmt.Fprintf(writer, "- **Passed:** %d  \n", passCount)
 	fmt.Fprintf(writer, "- **Failed:** %d  \n", failCount)
-	fmt.Fprintf(writer, "- **Warnings:** %d  \n\n", warnCount)
+	fmt.Fprintf(writer, "- **Warnings:** %d  \n", warnCount)
+	if infoCount > 0 {
+		fmt.Fprintf(writer, "- **Info:** %d  \n", infoCount)
+	}
+	fmt.Fprintln(writer)
 
 	if failCount > 0 {
 		fmt.Fprintln(writer, "**Result:** ❌ Migration validation FAILED - Some data is missing in target")
