@@ -131,23 +131,10 @@ func init() {
 	// Add validate-from-export command to root
 	rootCmd.AddCommand(validateFromExportCmd)
 
-	// Define flags specific to validate-from-export command
+	// Define flags specific to validate-from-export command only —
+	// shared target flags are inherited from rootCmd PersistentFlags
 	validateFromExportCmd.Flags().StringP("export-file", "e", "", "Path to the exported JSON file to use as source data")
 	validateFromExportCmd.MarkFlagRequired("export-file")
-
-	validateFromExportCmd.Flags().StringP("github-target-org", "t", "", "Target Organization to validate against")
-	validateFromExportCmd.MarkFlagRequired("github-target-org")
-
-	validateFromExportCmd.Flags().StringP("github-target-pat", "b", "", "Target Organization GitHub token. Scopes: read:org, read:user, user:email")
-
-	validateFromExportCmd.Flags().StringP("target-hostname", "v", "", "GitHub Enterprise target hostname url (optional) Ex. https://github.example.com")
-
-	validateFromExportCmd.Flags().String("target-repo", "", "Target repository name to validate (just the repo name, not owner/repo)")
-	validateFromExportCmd.MarkFlagRequired("target-repo")
-
-	validateFromExportCmd.Flags().BoolP("markdown-table", "m", false, "Output results in markdown table format")
-	validateFromExportCmd.Flags().String("markdown-file", "", "Write markdown output to the specified file (optional)")
-	validateFromExportCmd.Flags().Bool("no-lfs", false, "Skip LFS object validation")
 }
 
 // checkExportValidationVars validates the configuration for validate-from-export command
@@ -166,6 +153,16 @@ func checkExportValidationVars(exportFile string) error {
 	targetToken := viper.GetString("TARGET_TOKEN")
 	if targetToken == "" {
 		return fmt.Errorf("target token is required. Set it via --github-target-pat flag or GHMV_TARGET_TOKEN environment variable")
+	}
+
+	// Check for target organization
+	if viper.GetString("TARGET_ORGANIZATION") == "" {
+		return fmt.Errorf("target organization is required. Set it via --github-target-org flag or GHMV_TARGET_ORGANIZATION environment variable")
+	}
+
+	// Check for target repo
+	if viper.GetString("TARGET_REPO") == "" {
+		return fmt.Errorf("target repo is required. Set it via --target-repo flag or GHMV_TARGET_REPO environment variable")
 	}
 
 	return nil
