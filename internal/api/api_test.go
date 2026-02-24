@@ -1517,3 +1517,92 @@ func TestGetRateLimitStatus_InvalidClientType(t *testing.T) {
 		t.Errorf("GetRateLimitStatus() error = %v, want error containing %q", err, expectedErrMsg)
 	}
 }
+
+// --- Nil client guard tests ---
+
+func TestGetGraphQLClient_NilSourceClient(t *testing.T) {
+	// Simulate NewTargetOnlyAPI where source clients are nil
+	api := &GitHubAPI{
+		// sourceGraphClient intentionally nil
+	}
+
+	client, name, err := api.getGraphQLClient(SourceClient)
+	if err == nil {
+		t.Error("getGraphQLClient(SourceClient) should return error when source client is nil")
+	}
+	if client != nil {
+		t.Error("getGraphQLClient(SourceClient) should return nil client when source is not initialized")
+	}
+	if name != "source" {
+		t.Errorf("getGraphQLClient(SourceClient) name = %q, want %q", name, "source")
+	}
+	if !strings.Contains(err.Error(), "not initialized") {
+		t.Errorf("error should mention 'not initialized', got: %v", err)
+	}
+}
+
+func TestGetGraphQLClient_NilTargetClient(t *testing.T) {
+	api := &GitHubAPI{
+		// targetGraphClient intentionally nil
+	}
+
+	client, name, err := api.getGraphQLClient(TargetClient)
+	if err == nil {
+		t.Error("getGraphQLClient(TargetClient) should return error when target client is nil")
+	}
+	if client != nil {
+		t.Error("getGraphQLClient(TargetClient) should return nil client when target is not initialized")
+	}
+	if name != "target" {
+		t.Errorf("getGraphQLClient(TargetClient) name = %q, want %q", name, "target")
+	}
+}
+
+func TestGetRESTClient_NilSourceClient(t *testing.T) {
+	api := &GitHubAPI{
+		// sourceClient intentionally nil
+	}
+
+	client, name, err := api.getRESTClient(SourceClient)
+	if err == nil {
+		t.Error("getRESTClient(SourceClient) should return error when source client is nil")
+	}
+	if client != nil {
+		t.Error("getRESTClient(SourceClient) should return nil client when source is not initialized")
+	}
+	if name != "source" {
+		t.Errorf("getRESTClient(SourceClient) name = %q, want %q", name, "source")
+	}
+}
+
+func TestGetRESTClient_NilTargetClient(t *testing.T) {
+	api := &GitHubAPI{
+		// targetClient intentionally nil
+	}
+
+	client, name, err := api.getRESTClient(TargetClient)
+	if err == nil {
+		t.Error("getRESTClient(TargetClient) should return error when target client is nil")
+	}
+	if client != nil {
+		t.Error("getRESTClient(TargetClient) should return nil client when target is not initialized")
+	}
+	if name != "target" {
+		t.Errorf("getRESTClient(TargetClient) name = %q, want %q", name, "target")
+	}
+}
+
+func TestGetRateLimitStatus_NilSourceClient(t *testing.T) {
+	// Simulates the BBS flow where only target client is initialized
+	api := &GitHubAPI{
+		// sourceGraphClient intentionally nil — this is the exact scenario from BBS
+	}
+
+	info, err := api.GetRateLimitStatus(SourceClient)
+	if err == nil {
+		t.Error("GetRateLimitStatus(SourceClient) should return error when source client is nil")
+	}
+	if info != nil {
+		t.Error("GetRateLimitStatus(SourceClient) should return nil info when source client is nil")
+	}
+}

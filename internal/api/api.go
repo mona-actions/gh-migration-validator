@@ -231,8 +231,14 @@ func newGitHubGraphQLClient(config ClientConfig) (*RateLimitAwareGraphQLClient, 
 func (api *GitHubAPI) getGraphQLClient(clientType ClientType) (*RateLimitAwareGraphQLClient, string, error) {
 	switch clientType {
 	case SourceClient:
+		if api.sourceGraphClient == nil {
+			return nil, "source", fmt.Errorf("source GraphQL client is not initialized")
+		}
 		return api.sourceGraphClient, "source", nil
 	case TargetClient:
+		if api.targetGraphClient == nil {
+			return nil, "target", fmt.Errorf("target GraphQL client is not initialized")
+		}
 		return api.targetGraphClient, "target", nil
 	default:
 		return nil, "", fmt.Errorf("invalid client type")
@@ -243,8 +249,14 @@ func (api *GitHubAPI) getGraphQLClient(clientType ClientType) (*RateLimitAwareGr
 func (api *GitHubAPI) getRESTClient(clientType ClientType) (*github.Client, string, error) {
 	switch clientType {
 	case SourceClient:
+		if api.sourceClient == nil {
+			return nil, "source", fmt.Errorf("source REST client is not initialized")
+		}
 		return api.sourceClient, "source", nil
 	case TargetClient:
+		if api.targetClient == nil {
+			return nil, "target", fmt.Errorf("target REST client is not initialized")
+		}
 		return api.targetClient, "target", nil
 	default:
 		return nil, "", fmt.Errorf("invalid client type")
