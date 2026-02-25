@@ -75,7 +75,7 @@ func TestValidateRepositoryData_WithMigrationArchive(t *testing.T) {
 	}
 
 	validator := setupTestValidator(sourceData, targetData)
-	results := validator.validateRepositoryData()
+	results := validator.validateRepositoryData(ValidationOptions{})
 
 	// Check that we have migration archive validation results
 	hasArchiveVsSource := false
@@ -127,7 +127,7 @@ func TestValidateRepositoryData_WithoutMigrationArchive(t *testing.T) {
 	}
 
 	validator := setupTestValidator(sourceData, targetData)
-	results := validator.validateRepositoryData()
+	results := validator.validateRepositoryData(ValidationOptions{})
 
 	// Check that we don't have migration archive validation results
 	for _, result := range results {

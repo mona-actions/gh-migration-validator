@@ -37,56 +37,19 @@ The validation compares the same metrics as the standard validate command:
 - Commits count
 - Latest commit hash`,
 	Run: func(cmd *cobra.Command, args []string) {
-		// Get parameters from flags
+		// export-file is a local flag, read directly from cobra
 		exportFile := cmd.Flag("export-file").Value.String()
-		targetOrganization := cmd.Flag("github-target-org").Value.String()
-		targetToken := cmd.Flag("github-target-pat").Value.String()
-		targetHostname := cmd.Flag("target-hostname").Value.String()
-		targetRepo := cmd.Flag("target-repo").Value.String()
-		markdownTable, err := cmd.Flags().GetBool("markdown-table")
-		if err != nil {
-			fmt.Printf("Failed to parse 'markdown-table' flag: %v\n", err)
-			os.Exit(1)
-		}
-		markdownFile, err := cmd.Flags().GetString("markdown-file")
-		if err != nil {
-			fmt.Printf("Failed to parse 'markdown-file' flag: %v\n", err)
-			os.Exit(1)
-		}
 
-		// Only set ENV variables if flag values are provided (not empty)
-		if targetToken != "" {
-			os.Setenv("GHMV_TARGET_TOKEN", targetToken)
-		}
-		if targetHostname != "" {
-			os.Setenv("GHMV_TARGET_HOSTNAME", targetHostname)
-		}
-		if markdownTable {
-			os.Setenv("GHMV_MARKDOWN_TABLE", "true")
-		}
-		if markdownFile != "" {
-			os.Setenv("GHMV_MARKDOWN_FILE", markdownFile)
-		}
-		noLFS, _ := cmd.Flags().GetBool("no-lfs")
-		if noLFS {
-			os.Setenv("GHMV_NO_LFS", "true")
-		}
-
-		// Bind ENV variables in Viper (for optional parameters that can use env vars)
-		viper.BindEnv("TARGET_TOKEN")
-		viper.BindEnv("TARGET_HOSTNAME")
-		viper.BindEnv("TARGET_PRIVATE_KEY")
-		viper.BindEnv("TARGET_APP_ID")
-		viper.BindEnv("TARGET_INSTALLATION_ID")
-		viper.BindEnv("MARKDOWN_TABLE")
-		viper.BindEnv("MARKDOWN_FILE")
-		viper.BindEnv("NO_LFS")
-
-		// Validate required parameters (using flag values directly for required flags)
+		// Validate required parameters
 		if err := checkExportValidationVars(exportFile); err != nil {
 			fmt.Printf("Export validation configuration failed: %v\n", err)
 			os.Exit(1)
 		}
+
+		// Read all values from Viper (single source of truth)
+		// Shared target flags are inherited via PersistentFlags + BindPFlag from root
+		targetOrganization := viper.GetString("TARGET_ORGANIZATION")
+		targetRepo := viper.GetString("TARGET_REPO")
 
 		// Load export data from file
 		exportData, err := export.LoadExportData(exportFile)
@@ -149,20 +112,18 @@ func checkExportValidationVars(exportFile string) error {
 		return fmt.Errorf("export file does not exist: %s", exportFile)
 	}
 
-	// Check for target token (can come from flag or environment variable)
-	targetToken := viper.GetString("TARGET_TOKEN")
-	if targetToken == "" {
-		return fmt.Errorf("target token is required. Set it via --github-target-pat flag or GHMV_TARGET_TOKEN environment variable")
+	// Check required viper-managed configurations
+	required := map[string]requiredConfig{
+		"TARGET_TOKEN":        {"--github-target-pat / -b", "GHMV_TARGET_TOKEN"},
+		"TARGET_ORGANIZATION": {"--github-target-org / -t", "GHMV_TARGET_ORGANIZATION"},
+		"TARGET_REPO":         {"--target-repo", "GHMV_TARGET_REPO"},
 	}
 
-	// Check for target organization
-	if viper.GetString("TARGET_ORGANIZATION") == "" {
-		return fmt.Errorf("target organization is required. Set it via --github-target-org flag or GHMV_TARGET_ORGANIZATION environment variable")
-	}
-
-	// Check for target repo
-	if viper.GetString("TARGET_REPO") == "" {
-		return fmt.Errorf("target repo is required. Set it via --target-repo flag or GHMV_TARGET_REPO environment variable")
+	for key, info := range required {
+		if viper.GetString(key) == "" {
+			return fmt.Errorf("%s is required. Set via %s flag or %s environment variable",
+				key, info.flag, info.envVar)
+		}
 	}
 
 	return nil

@@ -103,7 +103,7 @@ func TestValidateRepositoryData_PerfectMatch(t *testing.T) {
 	}
 
 	validator := setupTestValidator(sourceData, targetData)
-	results := validator.validateRepositoryData()
+	results := validator.validateRepositoryData(ValidationOptions{})
 
 	// Validate metric names and count
 	validateMetricNames(t, results)
@@ -174,7 +174,7 @@ func TestValidateRepositoryData_MissingData(t *testing.T) {
 	}
 
 	validator := setupTestValidator(sourceData, targetData)
-	results := validator.validateRepositoryData()
+	results := validator.validateRepositoryData(ValidationOptions{})
 
 	// Count statuses
 	failCount := 0
@@ -240,7 +240,7 @@ func TestValidateRepositoryData_ExtraData(t *testing.T) {
 	}
 
 	validator := setupTestValidator(sourceData, targetData)
-	results := validator.validateRepositoryData()
+	results := validator.validateRepositoryData(ValidationOptions{})
 
 	// Count warnings and passes
 	warnCount := 0
@@ -442,7 +442,7 @@ func TestValidationResult_DifferenceCalculation(t *testing.T) {
 				},
 			)
 
-			results := validator.validateRepositoryData()
+			results := validator.validateRepositoryData(ValidationOptions{})
 
 			// Find the issues result
 			var issueResult ValidationResult
@@ -499,7 +499,7 @@ func TestValidationResult_CommitSHAComparison(t *testing.T) {
 				},
 			)
 
-			results := validator.validateRepositoryData()
+			results := validator.validateRepositoryData(ValidationOptions{})
 
 			// Find the commit SHA result by metric name
 			var shaResult *ValidationResult
@@ -565,7 +565,7 @@ func TestValidateRepositoryData_MetricNames(t *testing.T) {
 		},
 	)
 
-	results := validator.validateRepositoryData()
+	results := validator.validateRepositoryData(ValidationOptions{})
 
 	// Use the helper to validate metric names and presence
 	validateMetricNames(t, results)
@@ -757,7 +757,7 @@ func TestValidateFromExport_CompleteWorkflow(t *testing.T) {
 
 	// Since we can't test the API call part easily, we can test the validation
 	// logic that would run after successful target data retrieval
-	results := validator.validateRepositoryData()
+	results := validator.validateRepositoryData(ValidationOptions{})
 
 	// Should get validation results
 	assert.NotNil(t, results)
@@ -888,7 +888,7 @@ func TestExportValidationWorkflow_Integration(t *testing.T) {
 	}
 
 	// Step 5: Test validation logic (bypass API call by calling validateRepositoryData directly)
-	results := validator.validateRepositoryData()
+	results := validator.validateRepositoryData(ValidationOptions{})
 
 	// Verify validation results
 	assert.NotNil(t, results)
@@ -933,7 +933,7 @@ func BenchmarkValidateRepositoryData(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		validator.validateRepositoryData()
+		validator.validateRepositoryData(ValidationOptions{})
 	}
 }
 
@@ -1017,7 +1017,7 @@ func TestValidateRepositoryData_NoLFSFlag(t *testing.T) {
 	}
 
 	validator := setupTestValidator(sourceData, targetData)
-	results := validator.validateRepositoryData()
+	results := validator.validateRepositoryData(ValidationOptions{})
 
 	// Verify that LFS Objects is NOT in the results
 	foundLFS := false

@@ -4,6 +4,7 @@ import (
 "testing"
 
 "mona-actions/gh-migration-validator/internal/api"
+"mona-actions/gh-migration-validator/internal/migrationarchive"
 
 "github.com/pterm/pterm"
 "github.com/stretchr/testify/assert"
@@ -98,7 +99,7 @@ validator.SetSourceData(data)
 assert.Nil(t, validator.SourceData.PRs, "Should handle nil PRs gracefully")
 }
 
-// --- validateRepositoryDataWithOptions tests ---
+// --- validateRepositoryData tests ---
 
 func TestValidateWithOptions_SkipIssues(t *testing.T) {
 validator := setupTestValidator(
@@ -125,7 +126,7 @@ LatestCommitSHA: "abc123",
 )
 
 opts := ValidationOptions{SkipIssues: true}
-results := validator.validateRepositoryDataWithOptions(opts)
+results := validator.validateRepositoryData(opts)
 
 for _, result := range results {
 assert.NotContains(t, result.Metric, "Issues",
@@ -158,7 +159,7 @@ LatestCommitSHA: "abc123",
 )
 
 opts := ValidationOptions{SkipReleases: true}
-results := validator.validateRepositoryDataWithOptions(opts)
+results := validator.validateRepositoryData(opts)
 
 for _, result := range results {
 assert.NotEqual(t, "Releases", result.Metric,
@@ -185,7 +186,7 @@ LatestCommitSHA: "abc",
 )
 
 opts := ValidationOptions{SkipLFS: true}
-results := validator.validateRepositoryDataWithOptions(opts)
+results := validator.validateRepositoryData(opts)
 
 for _, result := range results {
 assert.NotEqual(t, "LFS Objects", result.Metric,
@@ -212,7 +213,7 @@ LatestCommitSHA: "abc",
 )
 
 opts := ValidationOptions{SkipMigrationLogOffset: true}
-results := validator.validateRepositoryDataWithOptions(opts)
+results := validator.validateRepositoryData(opts)
 
 // Find the issues result
 var issueResult *ValidationResult
@@ -252,7 +253,7 @@ LatestCommitSHA: "abc",
 )
 
 opts := ValidationOptions{} // Default: SkipMigrationLogOffset = false
-results := validator.validateRepositoryDataWithOptions(opts)
+results := validator.validateRepositoryData(opts)
 
 var issueResult *ValidationResult
 for i := range results {
@@ -289,7 +290,7 @@ LatestCommitSHA:       "abc",
 )
 
 opts := ValidationOptions{BranchPermissionsAdvisory: true}
-results := validator.validateRepositoryDataWithOptions(opts)
+results := validator.validateRepositoryData(opts)
 
 var branchResult *ValidationResult
 for i := range results {
@@ -334,7 +335,7 @@ LatestCommitSHA:       "abc",
 )
 
 opts := ValidationOptions{BranchPermissionsAdvisory: false}
-results := validator.validateRepositoryDataWithOptions(opts)
+results := validator.validateRepositoryData(opts)
 
 var branchResult *ValidationResult
 for i := range results {
@@ -390,7 +391,7 @@ BranchPermissionsAdvisory: true,
 SourceLabel:               "Bitbucket",
 }
 
-results := validator.validateRepositoryDataWithOptions(opts)
+results := validator.validateRepositoryData(opts)
 
 // Count by status type
 statusCounts := map[ValidationStatus]int{}
@@ -428,8 +429,8 @@ assert.Contains(t, metricNames, "Latest Commit SHA")
 }
 
 func TestValidateWithOptions_NoSkips_MatchesDefault(t *testing.T) {
-// With no options set, validateRepositoryDataWithOptions should produce
-// the same results as validateRepositoryData for the standard metrics
+// With no options set (zero-value ValidationOptions), validateRepositoryData
+// should produce the standard set of metrics for GitHub-to-GitHub comparison.
 sourceData := &RepositoryData{
 Owner:                 "source",
 Name:                  "repo",
@@ -460,27 +461,16 @@ LFSObjects:            5,
 
 validator := setupTestValidator(sourceData, targetData)
 
-defaultResults := validator.validateRepositoryData()
-optResults := validator.validateRepositoryDataWithOptions(ValidationOptions{})
+results := validator.validateRepositoryData(ValidationOptions{})
 
-// Both should produce same number of standard results (before migration archive)
-// Note: validateRepositoryData includes migration archive if present; with no archive, they match
-assert.Equal(t, len(defaultResults), len(optResults),
-"With no options, result count should match default validateRepositoryData")
-
-for i := range defaultResults {
-assert.Equal(t, defaultResults[i].Metric, optResults[i].Metric,
-"Metric names should match at index %d", i)
-assert.Equal(t, defaultResults[i].StatusType, optResults[i].StatusType,
-"Status types should match for %s", defaultResults[i].Metric)
-assert.Equal(t, defaultResults[i].Difference, optResults[i].Difference,
-"Differences should match for %s", defaultResults[i].Metric)
-}
+// Standard GitHub-to-GitHub metrics: Issues, PRs(total, open, merged), Tags, Releases, Commits, BranchProtection, Webhooks, LFS, LatestSHA = 11
+assert.Equal(t, 11, len(results),
+"Zero-value options should include all standard metrics")
 }
 
-func TestValidateWithOptions_SkipsMigrationArchive(t *testing.T) {
-// Even if source has migration archive data, validateRepositoryDataWithOptions
-// should NOT include archive comparisons
+func TestValidateWithOptions_NoArchiveData_NoArchiveResults(t *testing.T) {
+// When source data has no MigrationArchive set, no archive comparison
+// results should appear regardless of SkipMigrationArchive setting
 validator := setupTestValidator(
 &RepositoryData{
 Owner:           "source",
@@ -504,11 +494,57 @@ LatestCommitSHA: "abc123",
 },
 )
 
-results := validator.validateRepositoryDataWithOptions(ValidationOptions{})
+results := validator.validateRepositoryData(ValidationOptions{})
 
 for _, r := range results {
 assert.NotContains(t, r.Metric, "Archive",
 "Options-based validation should never include Archive comparisons")
+}
+}
+
+func TestValidateWithOptions_SkipMigrationArchive_WithArchiveData(t *testing.T) {
+// When source HAS migration archive data but SkipMigrationArchive is true,
+// archive comparison results must be suppressed. This is the BBS production path.
+validator := setupTestValidator(
+&RepositoryData{
+Owner:                 "source",
+Name:                  "repo",
+Issues:                10,
+PRs:                   &api.PRCounts{Total: 5, Open: 1, Merged: 3, Closed: 1},
+Tags:                  3,
+Releases:              2,
+CommitCount:           100,
+LatestCommitSHA:       "abc123",
+BranchProtectionRules: 2,
+Webhooks:              1,
+LFSObjects:            5,
+MigrationArchive: &migrationarchive.MigrationArchiveMetrics{
+Issues:            10,
+PullRequests:      5,
+ProtectedBranches: 2,
+Releases:          2,
+},
+},
+&RepositoryData{
+Owner:                 "target",
+Name:                  "repo",
+Issues:                11,
+PRs:                   &api.PRCounts{Total: 5, Open: 1, Merged: 3, Closed: 1},
+Tags:                  3,
+Releases:              2,
+CommitCount:           100,
+LatestCommitSHA:       "abc123",
+BranchProtectionRules: 2,
+Webhooks:              1,
+LFSObjects:            5,
+},
+)
+
+results := validator.validateRepositoryData(ValidationOptions{SkipMigrationArchive: true})
+
+for _, r := range results {
+assert.NotContains(t, r.Metric, "Archive",
+"SkipMigrationArchive should suppress archive results even when archive data exists")
 }
 }
 
@@ -543,7 +579,7 @@ assert.Contains(t, err.Error(), "source data not properly loaded")
 }
 
 func TestValidateWithOptions_NormalizesNilPRs(t *testing.T) {
-// Verify that validateRepositoryDataWithOptions handles nil PRs gracefully
+// Verify that validateRepositoryData handles nil PRs gracefully
 // by testing the normalization that ValidateWithOptions performs before calling it.
 validator := &MigrationValidator{
 api: nil,
@@ -566,7 +602,7 @@ validator.SourceData.PRs = &api.PRCounts{Total: 0, Open: 0, Merged: 0, Closed: 0
 
 // This should not panic after normalization
 assert.NotPanics(t, func() {
-validator.validateRepositoryDataWithOptions(ValidationOptions{SkipLFS: true})
+validator.validateRepositoryData(ValidationOptions{SkipLFS: true})
 }, "Should not panic with normalized nil PRs")
 
 assert.NotNil(t, validator.SourceData.PRs)
@@ -681,7 +717,7 @@ SkipMigrationLogOffset:    true,
 BranchPermissionsAdvisory: true,
 }
 
-results := validator.validateRepositoryDataWithOptions(opts)
+results := validator.validateRepositoryData(opts)
 
 // Should have: PRs (Total, Open, Merged), Tags, Commits, Branch Protection (advisory), Webhooks, Latest Commit SHA
 expectedMetrics := []string{

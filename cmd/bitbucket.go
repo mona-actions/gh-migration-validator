@@ -97,6 +97,7 @@ Metrics not available in Bitbucket (Issues, Releases, LFS) are automatically ski
 			SkipReleases:              true,
 			SkipLFS:                   true,
 			SkipMigrationLogOffset:    true,
+			SkipMigrationArchive:      true,
 			BranchPermissionsAdvisory: true,
 			SourceLabel:               "Bitbucket",
 		})
@@ -130,39 +131,21 @@ func init() {
 
 // checkBBSVars validates the configuration for the bitbucket command
 func checkBBSVars() error {
-	// Check BBS server URL
-	if viper.GetString("BBS_SERVER_URL") == "" {
-		return fmt.Errorf("BBS server URL is required. Set it via --bbs-server-url flag or GHMV_BBS_SERVER_URL environment variable")
+	required := map[string]requiredConfig{
+		"BBS_SERVER_URL":      {"--bbs-server-url / -H", "GHMV_BBS_SERVER_URL"},
+		"BBS_PROJECT":         {"--bbs-project / -p", "GHMV_BBS_PROJECT"},
+		"BBS_REPO":            {"--bbs-repo / -r", "GHMV_BBS_REPO"},
+		"BBS_TOKEN":           {"--bbs-token / -k", "GHMV_BBS_TOKEN"},
+		"TARGET_TOKEN":        {"--github-target-pat / -b", "GHMV_TARGET_TOKEN"},
+		"TARGET_ORGANIZATION": {"--github-target-org / -t", "GHMV_TARGET_ORGANIZATION"},
+		"TARGET_REPO":         {"--target-repo", "GHMV_TARGET_REPO"},
 	}
 
-	// Check BBS project
-	if viper.GetString("BBS_PROJECT") == "" {
-		return fmt.Errorf("BBS project is required. Set it via --bbs-project flag or GHMV_BBS_PROJECT environment variable")
-	}
-
-	// Check BBS repo
-	if viper.GetString("BBS_REPO") == "" {
-		return fmt.Errorf("BBS repo is required. Set it via --bbs-repo flag or GHMV_BBS_REPO environment variable")
-	}
-
-	// Check BBS token (can come from flag or environment variable)
-	if viper.GetString("BBS_TOKEN") == "" {
-		return fmt.Errorf("BBS token is required. Set it via --bbs-token flag or GHMV_BBS_TOKEN environment variable")
-	}
-
-	// Check target token (can come from flag or environment variable)
-	if viper.GetString("TARGET_TOKEN") == "" {
-		return fmt.Errorf("target token is required. Set it via --github-target-pat flag or GHMV_TARGET_TOKEN environment variable")
-	}
-
-	// Check target organization
-	if viper.GetString("TARGET_ORGANIZATION") == "" {
-		return fmt.Errorf("target organization is required. Set it via --github-target-org flag or GHMV_TARGET_ORGANIZATION environment variable")
-	}
-
-	// Check target repo
-	if viper.GetString("TARGET_REPO") == "" {
-		return fmt.Errorf("target repo is required. Set it via --target-repo flag or GHMV_TARGET_REPO environment variable")
+	for key, info := range required {
+		if viper.GetString(key) == "" {
+			return fmt.Errorf("%s is required. Set via %s flag or %s environment variable",
+				key, info.flag, info.envVar)
+		}
 	}
 
 	return nil

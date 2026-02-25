@@ -97,6 +97,17 @@ type MigrationValidator struct {
 	TargetData *RepositoryData
 }
 
+// ValidationOptions controls which validations are performed and how
+type ValidationOptions struct {
+	SkipIssues                bool   // BBS has no native issues
+	SkipReleases              bool   // BBS has no releases
+	SkipLFS                   bool   // Skip LFS validation
+	SkipMigrationLogOffset    bool   // Don't add +1 for migration log issue
+	SkipMigrationArchive      bool   // Skip migration archive comparisons (non-GitHub sources)
+	BranchPermissionsAdvisory bool   // Show as INFO instead of PASS/FAIL
+	SourceLabel               string // "Source" vs "Bitbucket" for display
+}
+
 // New creates a new MigrationValidator instance
 func New(githubAPI *api.GitHubAPI) *MigrationValidator {
 	return &MigrationValidator{
@@ -173,7 +184,7 @@ func (mv *MigrationValidator) ValidateMigration(sourceOwner, sourceRepo, targetO
 
 	// Compare and validate the data
 	fmt.Println("\nValidating migration data...")
-	results := mv.validateRepositoryData()
+	results := mv.validateRepositoryData(ValidationOptions{})
 
 	fmt.Println("Migration validation completed!")
 	return results, nil
@@ -365,16 +376,6 @@ func (mv *MigrationValidator) SetSourceDataFromExport(exportData *RepositoryData
 	mv.SourceData = &sourceDataCopy
 }
 
-// ValidationOptions controls which validations are performed and how
-type ValidationOptions struct {
-	SkipIssues                bool   // BBS has no native issues
-	SkipReleases              bool   // BBS has no releases
-	SkipLFS                   bool   // Skip LFS validation
-	SkipMigrationLogOffset    bool   // Don't add +1 for migration log issue
-	BranchPermissionsAdvisory bool   // Show as INFO instead of PASS/FAIL
-	SourceLabel               string // "Source" vs "Bitbucket" for display
-}
-
 // SetSourceData sets the source data from an external source (BBS, export, etc.)
 func (mv *MigrationValidator) SetSourceData(data *RepositoryData) {
 	mv.SetSourceDataFromExport(data)
@@ -420,7 +421,7 @@ func (mv *MigrationValidator) ValidateFromExport(targetOwner, targetRepo string)
 
 	// Compare and validate the data (same as ValidateMigration)
 	fmt.Println("\nValidating migration data...")
-	results := mv.validateRepositoryData()
+	results := mv.validateRepositoryData(ValidationOptions{})
 
 	fmt.Println("Migration validation completed!")
 	return results, nil
@@ -481,15 +482,15 @@ func (mv *MigrationValidator) ValidateWithOptions(targetOwner, targetRepo string
 
 	// Compare and validate the data with options
 	fmt.Println("\nValidating migration data...")
-	results := mv.validateRepositoryDataWithOptions(opts)
+	results := mv.validateRepositoryData(opts)
 
 	fmt.Println("Migration validation completed!")
 	return results, nil
 }
 
-// validateRepositoryDataWithOptions compares source and target repository data with configurable skip/advisory options.
-// This is used by BBS migrations where certain metrics don't apply and branch permissions are advisory.
-func (mv *MigrationValidator) validateRepositoryDataWithOptions(opts ValidationOptions) []ValidationResult {
+// validateRepositoryData compares source and target repository data with configurable options.
+// Pass ValidationOptions when needed — zero-value options produce GitHub-to-GitHub defaults.
+func (mv *MigrationValidator) validateRepositoryData(opts ValidationOptions) []ValidationResult {
 	fmt.Println("Comparing repository data...")
 
 	var results []ValidationResult
@@ -666,8 +667,107 @@ func (mv *MigrationValidator) validateRepositoryDataWithOptions(opts ValidationO
 		Difference: 0, // Not applicable for SHA comparison
 	})
 
-	// Note: Migration archive comparisons are skipped for options-based validation
-	// since BBS migrations don't use GitHub migration archives
+	// Migration archive comparisons (GitHub-to-GitHub migrations only)
+	if !opts.SkipMigrationArchive && mv.SourceData.MigrationArchive != nil {
+		// First, compare migration archive with source API data to check migration completeness
+		archiveVsSourceIssuesDiff := mv.SourceData.MigrationArchive.Issues - mv.SourceData.Issues
+		archiveVsSourceIssuesStatus, archiveVsSourceIssuesStatusType := getValidationStatus(archiveVsSourceIssuesDiff)
+
+		results = append(results, ValidationResult{
+			Metric:     "Archive vs Source Issues",
+			SourceVal:  mv.SourceData.Issues,
+			TargetVal:  mv.SourceData.MigrationArchive.Issues,
+			Status:     archiveVsSourceIssuesStatus,
+			StatusType: archiveVsSourceIssuesStatusType,
+			Difference: archiveVsSourceIssuesDiff,
+		})
+
+		archiveVsSourcePRsDiff := mv.SourceData.MigrationArchive.PullRequests - mv.SourceData.PRs.Total
+		archiveVsSourcePRsStatus, archiveVsSourcePRsStatusType := getValidationStatus(archiveVsSourcePRsDiff)
+
+		results = append(results, ValidationResult{
+			Metric:     "Archive vs Source Pull Requests",
+			SourceVal:  mv.SourceData.PRs.Total,
+			TargetVal:  mv.SourceData.MigrationArchive.PullRequests,
+			Status:     archiveVsSourcePRsStatus,
+			StatusType: archiveVsSourcePRsStatusType,
+			Difference: archiveVsSourcePRsDiff,
+		})
+
+		archiveVsSourceBranchesDiff := mv.SourceData.MigrationArchive.ProtectedBranches - mv.SourceData.BranchProtectionRules
+		archiveVsSourceBranchesStatus, archiveVsSourceBranchesStatusType := getValidationStatus(archiveVsSourceBranchesDiff)
+
+		results = append(results, ValidationResult{
+			Metric:     "Archive vs Source Protected Branches",
+			SourceVal:  mv.SourceData.BranchProtectionRules,
+			TargetVal:  mv.SourceData.MigrationArchive.ProtectedBranches,
+			Status:     archiveVsSourceBranchesStatus,
+			StatusType: archiveVsSourceBranchesStatusType,
+			Difference: archiveVsSourceBranchesDiff,
+		})
+
+		archiveVsSourceReleasesDiff := mv.SourceData.MigrationArchive.Releases - mv.SourceData.Releases
+		archiveVsSourceReleasesStatus, archiveVsSourceReleasesStatusType := getValidationStatus(archiveVsSourceReleasesDiff)
+
+		results = append(results, ValidationResult{
+			Metric:     "Archive vs Source Releases",
+			SourceVal:  mv.SourceData.Releases,
+			TargetVal:  mv.SourceData.MigrationArchive.Releases,
+			Status:     archiveVsSourceReleasesStatus,
+			StatusType: archiveVsSourceReleasesStatusType,
+			Difference: archiveVsSourceReleasesDiff,
+		})
+
+		// Then, compare migration archive with target data to check migration success
+		expectedTargetFromArchive := mv.SourceData.MigrationArchive.Issues + MigrationLogIssueOffset
+		archiveToTargetIssuesDiff := expectedTargetFromArchive - mv.TargetData.Issues
+		archiveToTargetIssuesStatus, archiveToTargetIssuesStatusType := getValidationStatus(archiveToTargetIssuesDiff)
+
+		results = append(results, ValidationResult{
+			Metric:     "Archive vs Target Issues (expected +1 for migration log)",
+			SourceVal:  mv.SourceData.MigrationArchive.Issues,
+			TargetVal:  mv.TargetData.Issues,
+			Status:     archiveToTargetIssuesStatus,
+			StatusType: archiveToTargetIssuesStatusType,
+			Difference: archiveToTargetIssuesDiff,
+		})
+
+		archiveToTargetPRsDiff := mv.SourceData.MigrationArchive.PullRequests - mv.TargetData.PRs.Total
+		archiveToTargetPRsStatus, archiveToTargetPRsStatusType := getValidationStatus(archiveToTargetPRsDiff)
+
+		results = append(results, ValidationResult{
+			Metric:     "Archive vs Target Pull Requests",
+			SourceVal:  mv.SourceData.MigrationArchive.PullRequests,
+			TargetVal:  mv.TargetData.PRs.Total,
+			Status:     archiveToTargetPRsStatus,
+			StatusType: archiveToTargetPRsStatusType,
+			Difference: archiveToTargetPRsDiff,
+		})
+
+		archiveToTargetBranchesDiff := mv.SourceData.MigrationArchive.ProtectedBranches - mv.TargetData.BranchProtectionRules
+		archiveToTargetBranchesStatus, archiveToTargetBranchesStatusType := getValidationStatus(archiveToTargetBranchesDiff)
+
+		results = append(results, ValidationResult{
+			Metric:     "Archive vs Target Protected Branches",
+			SourceVal:  mv.SourceData.MigrationArchive.ProtectedBranches,
+			TargetVal:  mv.TargetData.BranchProtectionRules,
+			Status:     archiveToTargetBranchesStatus,
+			StatusType: archiveToTargetBranchesStatusType,
+			Difference: archiveToTargetBranchesDiff,
+		})
+
+		archiveToTargetReleasesDiff := mv.SourceData.MigrationArchive.Releases - mv.TargetData.Releases
+		archiveToTargetReleasesStatus, archiveToTargetReleasesStatusType := getValidationStatus(archiveToTargetReleasesDiff)
+
+		results = append(results, ValidationResult{
+			Metric:     "Archive vs Target Releases",
+			SourceVal:  mv.SourceData.MigrationArchive.Releases,
+			TargetVal:  mv.TargetData.Releases,
+			Status:     archiveToTargetReleasesStatus,
+			StatusType: archiveToTargetReleasesStatusType,
+			Difference: archiveToTargetReleasesDiff,
+		})
+	}
 
 	return results
 }
@@ -842,268 +942,6 @@ func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.
 	}
 
 	return errorMessages, nil
-}
-
-// validateRepositoryData compares source and target repository data and returns validation results
-func (mv *MigrationValidator) validateRepositoryData() []ValidationResult {
-	fmt.Println("Comparing repository data...")
-
-	var results []ValidationResult
-
-	// Compare Issues (target should have source issues + migration log issue)
-	expectedTargetIssues := mv.SourceData.Issues + MigrationLogIssueOffset
-	issueDiff := expectedTargetIssues - mv.TargetData.Issues
-	issueStatus, issueStatusType := getValidationStatus(issueDiff)
-
-	results = append(results, ValidationResult{
-		Metric:     "Issues (expected +1 for migration log)",
-		SourceVal:  mv.SourceData.Issues,
-		TargetVal:  mv.TargetData.Issues,
-		Status:     issueStatus,
-		StatusType: issueStatusType,
-		Difference: issueDiff,
-	})
-
-	// Compare Total PRs
-	prDiff := mv.SourceData.PRs.Total - mv.TargetData.PRs.Total
-	prStatus, prStatusType := getValidationStatus(prDiff)
-
-	results = append(results, ValidationResult{
-		Metric:     "Pull Requests (Total)",
-		SourceVal:  mv.SourceData.PRs.Total,
-		TargetVal:  mv.TargetData.PRs.Total,
-		Status:     prStatus,
-		StatusType: prStatusType,
-		Difference: prDiff,
-	})
-
-	// Compare Open PRs
-	openPRDiff := mv.SourceData.PRs.Open - mv.TargetData.PRs.Open
-	openPRStatus, openPRStatusType := getValidationStatus(openPRDiff)
-
-	results = append(results, ValidationResult{
-		Metric:     "Pull Requests (Open)",
-		SourceVal:  mv.SourceData.PRs.Open,
-		TargetVal:  mv.TargetData.PRs.Open,
-		Status:     openPRStatus,
-		StatusType: openPRStatusType,
-		Difference: openPRDiff,
-	})
-
-	// Compare Merged PRs
-	mergedPRDiff := mv.SourceData.PRs.Merged - mv.TargetData.PRs.Merged
-	mergedPRStatus, mergedPRStatusType := getValidationStatus(mergedPRDiff)
-
-	results = append(results, ValidationResult{
-		Metric:     "Pull Requests (Merged)",
-		SourceVal:  mv.SourceData.PRs.Merged,
-		TargetVal:  mv.TargetData.PRs.Merged,
-		Status:     mergedPRStatus,
-		StatusType: mergedPRStatusType,
-		Difference: mergedPRDiff,
-	})
-
-	// Compare Tags
-	tagDiff := mv.SourceData.Tags - mv.TargetData.Tags
-	tagStatus, tagStatusType := getValidationStatus(tagDiff)
-
-	results = append(results, ValidationResult{
-		Metric:     "Tags",
-		SourceVal:  mv.SourceData.Tags,
-		TargetVal:  mv.TargetData.Tags,
-		Status:     tagStatus,
-		StatusType: tagStatusType,
-		Difference: tagDiff,
-	})
-
-	// Compare Releases
-	releaseDiff := mv.SourceData.Releases - mv.TargetData.Releases
-	releaseStatus, releaseStatusType := getValidationStatus(releaseDiff)
-
-	results = append(results, ValidationResult{
-		Metric:     "Releases",
-		SourceVal:  mv.SourceData.Releases,
-		TargetVal:  mv.TargetData.Releases,
-		Status:     releaseStatus,
-		StatusType: releaseStatusType,
-		Difference: releaseDiff,
-	})
-
-	// Compare Commit Count
-	commitDiff := mv.SourceData.CommitCount - mv.TargetData.CommitCount
-	commitStatus, commitStatusType := getValidationStatus(commitDiff)
-
-	results = append(results, ValidationResult{
-		Metric:     "Commits",
-		SourceVal:  mv.SourceData.CommitCount,
-		TargetVal:  mv.TargetData.CommitCount,
-		Status:     commitStatus,
-		StatusType: commitStatusType,
-		Difference: commitDiff,
-	})
-
-	// Compare Branch Protection Rules
-	branchProtectionDiff := mv.SourceData.BranchProtectionRules - mv.TargetData.BranchProtectionRules
-	branchProtectionStatus, branchProtectionStatusType := getValidationStatus(branchProtectionDiff)
-
-	results = append(results, ValidationResult{
-		Metric:     "Branch Protection Rules",
-		SourceVal:  mv.SourceData.BranchProtectionRules,
-		TargetVal:  mv.TargetData.BranchProtectionRules,
-		Status:     branchProtectionStatus,
-		StatusType: branchProtectionStatusType,
-		Difference: branchProtectionDiff,
-	})
-
-	// Compare Webhooks
-	webhooksDiff := mv.SourceData.Webhooks - mv.TargetData.Webhooks
-	webhooksStatus, webhooksStatusType := getValidationStatus(webhooksDiff)
-
-	results = append(results, ValidationResult{
-		Metric:     "Webhooks",
-		SourceVal:  mv.SourceData.Webhooks,
-		TargetVal:  mv.TargetData.Webhooks,
-		Status:     webhooksStatus,
-		StatusType: webhooksStatusType,
-		Difference: webhooksDiff,
-	})
-
-	// Compare LFS Objects (skip if NO_LFS flag is set)
-	if !viper.GetBool("NO_LFS") {
-		lfsDiff := mv.SourceData.LFSObjects - mv.TargetData.LFSObjects
-		lfsStatus, lfsStatusType := getValidationStatus(lfsDiff)
-
-		results = append(results, ValidationResult{
-			Metric:     "LFS Objects",
-			SourceVal:  mv.SourceData.LFSObjects,
-			TargetVal:  mv.TargetData.LFSObjects,
-			Status:     lfsStatus,
-			StatusType: lfsStatusType,
-			Difference: lfsDiff,
-		})
-	}
-
-	// Compare Latest Commit SHA
-	latestCommitStatus := ValidationStatusMessagePass
-	latestCommitStatusType := ValidationStatusPass
-
-	if mv.SourceData.LatestCommitSHA != mv.TargetData.LatestCommitSHA {
-		latestCommitStatus = ValidationStatusMessageFail
-		latestCommitStatusType = ValidationStatusFail
-	}
-
-	results = append(results, ValidationResult{
-		Metric:     "Latest Commit SHA",
-		SourceVal:  mv.SourceData.LatestCommitSHA,
-		TargetVal:  mv.TargetData.LatestCommitSHA,
-		Status:     latestCommitStatus,
-		StatusType: latestCommitStatusType,
-		Difference: 0, // Not applicable for SHA comparison
-	})
-
-	// Add migration archive validation if available
-	if mv.SourceData.MigrationArchive != nil {
-		// First, compare migration archive with source API data to check migration completeness
-		archiveVsSourceIssuesDiff := mv.SourceData.MigrationArchive.Issues - mv.SourceData.Issues
-		archiveVsSourceIssuesStatus, archiveVsSourceIssuesStatusType := getValidationStatus(archiveVsSourceIssuesDiff)
-
-		results = append(results, ValidationResult{
-			Metric:     "Archive vs Source Issues",
-			SourceVal:  mv.SourceData.Issues,
-			TargetVal:  mv.SourceData.MigrationArchive.Issues,
-			Status:     archiveVsSourceIssuesStatus,
-			StatusType: archiveVsSourceIssuesStatusType,
-			Difference: archiveVsSourceIssuesDiff,
-		})
-
-		archiveVsSourcePRsDiff := mv.SourceData.MigrationArchive.PullRequests - mv.SourceData.PRs.Total
-		archiveVsSourcePRsStatus, archiveVsSourcePRsStatusType := getValidationStatus(archiveVsSourcePRsDiff)
-
-		results = append(results, ValidationResult{
-			Metric:     "Archive vs Source Pull Requests",
-			SourceVal:  mv.SourceData.PRs.Total,
-			TargetVal:  mv.SourceData.MigrationArchive.PullRequests,
-			Status:     archiveVsSourcePRsStatus,
-			StatusType: archiveVsSourcePRsStatusType,
-			Difference: archiveVsSourcePRsDiff,
-		})
-
-		archiveVsSourceBranchesDiff := mv.SourceData.MigrationArchive.ProtectedBranches - mv.SourceData.BranchProtectionRules
-		archiveVsSourceBranchesStatus, archiveVsSourceBranchesStatusType := getValidationStatus(archiveVsSourceBranchesDiff)
-
-		results = append(results, ValidationResult{
-			Metric:     "Archive vs Source Protected Branches",
-			SourceVal:  mv.SourceData.BranchProtectionRules,
-			TargetVal:  mv.SourceData.MigrationArchive.ProtectedBranches,
-			Status:     archiveVsSourceBranchesStatus,
-			StatusType: archiveVsSourceBranchesStatusType,
-			Difference: archiveVsSourceBranchesDiff,
-		})
-
-		archiveVsSourceReleasesDiff := mv.SourceData.MigrationArchive.Releases - mv.SourceData.Releases
-		archiveVsSourceReleasesStatus, archiveVsSourceReleasesStatusType := getValidationStatus(archiveVsSourceReleasesDiff)
-
-		results = append(results, ValidationResult{
-			Metric:     "Archive vs Source Releases",
-			SourceVal:  mv.SourceData.Releases,
-			TargetVal:  mv.SourceData.MigrationArchive.Releases,
-			Status:     archiveVsSourceReleasesStatus,
-			StatusType: archiveVsSourceReleasesStatusType,
-			Difference: archiveVsSourceReleasesDiff,
-		})
-
-		// Then, compare migration archive with target data to check migration success
-		expectedTargetFromArchive := mv.SourceData.MigrationArchive.Issues + MigrationLogIssueOffset
-		archiveToTargetIssuesDiff := expectedTargetFromArchive - mv.TargetData.Issues
-		archiveToTargetIssuesStatus, archiveToTargetIssuesStatusType := getValidationStatus(archiveToTargetIssuesDiff)
-
-		results = append(results, ValidationResult{
-			Metric:     "Archive vs Target Issues (expected +1 for migration log)",
-			SourceVal:  mv.SourceData.MigrationArchive.Issues,
-			TargetVal:  mv.TargetData.Issues,
-			Status:     archiveToTargetIssuesStatus,
-			StatusType: archiveToTargetIssuesStatusType,
-			Difference: archiveToTargetIssuesDiff,
-		})
-
-		archiveToTargetPRsDiff := mv.SourceData.MigrationArchive.PullRequests - mv.TargetData.PRs.Total
-		archiveToTargetPRsStatus, archiveToTargetPRsStatusType := getValidationStatus(archiveToTargetPRsDiff)
-
-		results = append(results, ValidationResult{
-			Metric:     "Archive vs Target Pull Requests",
-			SourceVal:  mv.SourceData.MigrationArchive.PullRequests,
-			TargetVal:  mv.TargetData.PRs.Total,
-			Status:     archiveToTargetPRsStatus,
-			StatusType: archiveToTargetPRsStatusType,
-			Difference: archiveToTargetPRsDiff,
-		})
-
-		archiveToTargetBranchesDiff := mv.SourceData.MigrationArchive.ProtectedBranches - mv.TargetData.BranchProtectionRules
-		archiveToTargetBranchesStatus, archiveToTargetBranchesStatusType := getValidationStatus(archiveToTargetBranchesDiff)
-
-		results = append(results, ValidationResult{
-			Metric:     "Archive vs Target Protected Branches",
-			SourceVal:  mv.SourceData.MigrationArchive.ProtectedBranches,
-			TargetVal:  mv.TargetData.BranchProtectionRules,
-			Status:     archiveToTargetBranchesStatus,
-			StatusType: archiveToTargetBranchesStatusType,
-			Difference: archiveToTargetBranchesDiff,
-		})
-
-		archiveToTargetReleasesDiff := mv.SourceData.MigrationArchive.Releases - mv.TargetData.Releases
-		archiveToTargetReleasesStatus, archiveToTargetReleasesStatusType := getValidationStatus(archiveToTargetReleasesDiff)
-
-		results = append(results, ValidationResult{
-			Metric:     "Archive vs Target Releases",
-			SourceVal:  mv.SourceData.MigrationArchive.Releases,
-			TargetVal:  mv.TargetData.Releases,
-			Status:     archiveToTargetReleasesStatus,
-			StatusType: archiveToTargetReleasesStatusType,
-			Difference: archiveToTargetReleasesDiff,
-		})
-	}
-
-	return results
 }
 
 // PrintValidationResults prints a formatted report of the validation results

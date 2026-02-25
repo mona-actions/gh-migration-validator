@@ -114,6 +114,8 @@ os.Setenv("GHMV_BBS_PROJECT", "PROJ")
 os.Setenv("GHMV_BBS_REPO", "my-repo")
 os.Setenv("GHMV_BBS_TOKEN", "bbs-token-value")
 os.Setenv("GHMV_TARGET_TOKEN", "target-token-value")
+os.Setenv("GHMV_TARGET_ORGANIZATION", "my-org")
+os.Setenv("GHMV_TARGET_REPO", "my-repo")
 
 cmd := createBBSTestCommand()
 setupBBSViperWithFlags(cmd)
@@ -142,6 +144,8 @@ os.Setenv("GHMV_BBS_SERVER_URL", "https://bitbucket.example.com")
 os.Setenv("GHMV_BBS_REPO", "my-repo")
 os.Setenv("GHMV_BBS_TOKEN", "bbs-token-value")
 os.Setenv("GHMV_TARGET_TOKEN", "target-token-value")
+os.Setenv("GHMV_TARGET_ORGANIZATION", "my-org")
+os.Setenv("GHMV_TARGET_REPO", "my-repo")
 
 cmd := createBBSTestCommand()
 setupBBSViperWithFlags(cmd)
@@ -170,6 +174,8 @@ os.Setenv("GHMV_BBS_SERVER_URL", "https://bitbucket.example.com")
 os.Setenv("GHMV_BBS_PROJECT", "PROJ")
 os.Setenv("GHMV_BBS_TOKEN", "bbs-token-value")
 os.Setenv("GHMV_TARGET_TOKEN", "target-token-value")
+os.Setenv("GHMV_TARGET_ORGANIZATION", "my-org")
+os.Setenv("GHMV_TARGET_REPO", "my-repo")
 
 cmd := createBBSTestCommand()
 setupBBSViperWithFlags(cmd)
@@ -198,6 +204,8 @@ os.Setenv("GHMV_BBS_SERVER_URL", "https://bitbucket.example.com")
 os.Setenv("GHMV_BBS_PROJECT", "PROJ")
 os.Setenv("GHMV_BBS_REPO", "my-repo")
 os.Setenv("GHMV_TARGET_TOKEN", "target-token-value")
+os.Setenv("GHMV_TARGET_ORGANIZATION", "my-org")
+os.Setenv("GHMV_TARGET_REPO", "my-repo")
 
 cmd := createBBSTestCommand()
 setupBBSViperWithFlags(cmd)
@@ -226,6 +234,8 @@ os.Setenv("GHMV_BBS_SERVER_URL", "https://bitbucket.example.com")
 os.Setenv("GHMV_BBS_PROJECT", "PROJ")
 os.Setenv("GHMV_BBS_REPO", "my-repo")
 os.Setenv("GHMV_BBS_TOKEN", "bbs-token-value")
+os.Setenv("GHMV_TARGET_ORGANIZATION", "my-org")
+os.Setenv("GHMV_TARGET_REPO", "my-repo")
 
 cmd := createBBSTestCommand()
 setupBBSViperWithFlags(cmd)
@@ -257,6 +267,7 @@ func TestCheckBBSVars_MissingTargetOrganization(t *testing.T) {
 	os.Setenv("GHMV_BBS_REPO", "my-repo")
 	os.Setenv("GHMV_BBS_TOKEN", "bbs-token-value")
 	os.Setenv("GHMV_TARGET_TOKEN", "target-token-value")
+	os.Setenv("GHMV_TARGET_REPO", "target-repo")
 
 	cmd := createBBSTestCommand()
 	setupBBSViperWithFlags(cmd)
@@ -265,8 +276,8 @@ func TestCheckBBSVars_MissingTargetOrganization(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error when TARGET_ORGANIZATION is missing")
 	}
-	if !strings.Contains(err.Error(), "target organization") {
-		t.Errorf("Error should mention target organization, got: %v", err)
+	if !strings.Contains(err.Error(), "TARGET_ORGANIZATION") {
+		t.Errorf("Error should mention TARGET_ORGANIZATION, got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "--github-target-org") {
 		t.Errorf("Error should mention the flag option, got: %v", err)
@@ -297,8 +308,8 @@ func TestCheckBBSVars_MissingTargetRepo(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error when TARGET_REPO is missing")
 	}
-	if !strings.Contains(err.Error(), "target repo") {
-		t.Errorf("Error should mention target repo, got: %v", err)
+	if !strings.Contains(err.Error(), "TARGET_REPO") {
+		t.Errorf("Error should mention TARGET_REPO, got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "--target-repo") {
 		t.Errorf("Error should mention the flag option, got: %v", err)
