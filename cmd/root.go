@@ -69,36 +69,41 @@ func Execute() {
 }
 
 func init() {
-	// Define flags WITHOUT marking as required - validation happens in checkVars()
-	// This allows either flags OR environment variables to provide values
+	// Define flags specific to the root command
 	rootCmd.Flags().StringP("github-source-org", "s", "", "Source Organization to sync teams from")
-	rootCmd.Flags().StringP("github-target-org", "t", "", "Target Organization to sync teams from")
 	rootCmd.Flags().StringP("github-source-pat", "a", "", "Source Organization GitHub token. Scopes: read:org, read:user, user:email")
-	rootCmd.Flags().StringP("github-target-pat", "b", "", "Target Organization GitHub token. Scopes: admin:org")
 	rootCmd.Flags().StringP("source-hostname", "u", "", "GitHub Enterprise source hostname url (optional) Ex. https://github.example.com")
 	rootCmd.Flags().StringP("source-repo", "", "", "Source repository name to verify against (just the repo name, not owner/repo)")
-	rootCmd.Flags().StringP("target-repo", "", "", "Target repository name to verify against (just the repo name, not owner/repo)")
-	rootCmd.Flags().BoolP("markdown-table", "m", false, "Print results as a markdown table")
-	rootCmd.Flags().String("markdown-file", "", "Write markdown output to the specified file (optional)")
-	rootCmd.Flags().Bool("no-lfs", false, "Skip LFS object validation")
+
+	// Shared GitHub target flags — available to all subcommands via PersistentFlags
+	rootCmd.PersistentFlags().StringP("github-target-org", "t", "", "Target GitHub organization")
+	rootCmd.PersistentFlags().StringP("github-target-pat", "b", "", "Target Organization GitHub token. Scopes: read:org, read:user, user:email")
+	rootCmd.PersistentFlags().StringP("target-hostname", "v", "", "GitHub Enterprise target hostname url (optional) Ex. https://github.example.com")
+	rootCmd.PersistentFlags().StringP("target-repo", "", "", "Target repository name to verify against (just the repo name, not owner/repo)")
+	rootCmd.PersistentFlags().BoolP("markdown-table", "m", false, "Print results as a markdown table")
+	rootCmd.PersistentFlags().String("markdown-file", "", "Write markdown output to the specified file (optional)")
+	rootCmd.PersistentFlags().Bool("no-lfs", false, "Skip LFS object validation")
 	rootCmd.PersistentFlags().Bool("strict-exit", false, "Exit with status 2 when validations fail")
 
 	// Set environment variable prefix: GHMV (GitHub Migration Validator)
 	viper.SetEnvPrefix("GHMV")
 	viper.AutomaticEnv()
 
-	// Bind flags to Viper keys - this connects flags directly to Viper
-	// Priority: Flag value > Environment variable > Default value
+	// Bind source flags (local to root) to Viper
 	viper.BindPFlag("SOURCE_ORGANIZATION", rootCmd.Flags().Lookup("github-source-org"))
-	viper.BindPFlag("TARGET_ORGANIZATION", rootCmd.Flags().Lookup("github-target-org"))
 	viper.BindPFlag("SOURCE_TOKEN", rootCmd.Flags().Lookup("github-source-pat"))
-	viper.BindPFlag("TARGET_TOKEN", rootCmd.Flags().Lookup("github-target-pat"))
 	viper.BindPFlag("SOURCE_HOSTNAME", rootCmd.Flags().Lookup("source-hostname"))
 	viper.BindPFlag("SOURCE_REPO", rootCmd.Flags().Lookup("source-repo"))
-	viper.BindPFlag("TARGET_REPO", rootCmd.Flags().Lookup("target-repo"))
-	viper.BindPFlag("MARKDOWN_TABLE", rootCmd.Flags().Lookup("markdown-table"))
-	viper.BindPFlag("MARKDOWN_FILE", rootCmd.Flags().Lookup("markdown-file"))
-	viper.BindPFlag("NO_LFS", rootCmd.Flags().Lookup("no-lfs"))
+
+	// Bind shared target flags (persistent, inherited by subcommands) to Viper
+	// Priority: Flag value > Environment variable > Default value
+	viper.BindPFlag("TARGET_ORGANIZATION", rootCmd.PersistentFlags().Lookup("github-target-org"))
+	viper.BindPFlag("TARGET_TOKEN", rootCmd.PersistentFlags().Lookup("github-target-pat"))
+	viper.BindPFlag("TARGET_HOSTNAME", rootCmd.PersistentFlags().Lookup("target-hostname"))
+	viper.BindPFlag("TARGET_REPO", rootCmd.PersistentFlags().Lookup("target-repo"))
+	viper.BindPFlag("MARKDOWN_TABLE", rootCmd.PersistentFlags().Lookup("markdown-table"))
+	viper.BindPFlag("MARKDOWN_FILE", rootCmd.PersistentFlags().Lookup("markdown-file"))
+	viper.BindPFlag("NO_LFS", rootCmd.PersistentFlags().Lookup("no-lfs"))
 	viper.BindPFlag("STRICT_EXIT", rootCmd.PersistentFlags().Lookup("strict-exit"))
 
 	// Bind environment variables explicitly for additional app authentication options
