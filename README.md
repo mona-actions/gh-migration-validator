@@ -411,46 +411,43 @@ The tool provides a formatted table with colored status indicators and a summary
 
 Example:
 
-```markdown
-# 🔄 Source vs Target Validation
-
-Metric | Status | Source Value | Target Value | Difference  
-Issues (expected +1 for migration log) | ⚠️ WARN | 2 (expected target: 3) | 7 | Extra: 4  
-Pull Requests (Total) | ✅ PASS | 29 | 29 | Perfect match
-Pull Requests (Open) | ✅ PASS | 0 | 0 | Perfect match
-Pull Requests (Merged) | ✅ PASS | 27 | 27 | Perfect match
-Tags | ✅ PASS | 25 | 25 | Perfect match
-Releases | ✅ PASS | 25 | 25 | Perfect match
-Commits | ✅ PASS | 64 | 64 | Perfect match
-Branch Protection Rules | ✅ PASS | 1 | 1 | Perfect match
-Webhooks | ✅ PASS | 0 | 0 | Perfect match
-LFS Objects | ✅ PASS | 15 | 15 | Perfect match
-Latest Commit SHA | ✅ PASS | d11552345ad4ffea894b59d9a4145a5119d77dba | d11552345ad4ffea894b59d9a4145a5119d77dba | N/A
 ```
+📊 Migration Validation Report
 
-# 📦 Migration Archive vs Source Validation
+🔄 Source vs Target Validation
 
-Metric | Status | Source API Value | Archive Value | Difference  
-Archive vs Source Issues | ❌ FAIL | 2 | 6 | Missing: 4  
-Archive vs Source Pull Requests | ✅ PASS | 29 | 29 | Perfect match
-Archive vs Source Protected Branches | ✅ PASS | 1 | 1 | Perfect match
-Archive vs Source Releases | ✅ PASS | 25 | 25 | Perfect match
+Metric                                 | Status  | Source Value                             | Target Value                             | Difference
+Issues (expected +1 for migration log) | ⚠️ WARN  | 2 (expected target: 3)                   | 7                                        | Extra: 4
+Pull Requests (Total)                  | ✅ PASS | 29                                       | 29                                       | Perfect match
+Pull Requests (Open)                   | ✅ PASS | 0                                        | 0                                        | Perfect match
+Pull Requests (Merged)                 | ✅ PASS | 27                                       | 27                                       | Perfect match
+Tags                                   | ✅ PASS | 25                                       | 25                                       | Perfect match
+Releases                               | ✅ PASS | 25                                       | 25                                       | Perfect match
+Commits                                | ✅ PASS | 64                                       | 64                                       | Perfect match
+Branch Protection Rules                | ✅ PASS | 1                                        | 1                                        | Perfect match
+Webhooks                               | ✅ PASS | 0                                        | 0                                        | Perfect match
+LFS Objects                            | ✅ PASS | 15                                       | 15                                       | Perfect match
+Latest Commit SHA                      | ✅ PASS | d11552345ad4ffea894b59d9a4145a5119d77dba | d11552345ad4ffea894b59d9a4145a5119d77dba | N/A
 
-# 🎯 Migration Archive vs Target Validation
+📦 Migration Archive vs Source Validation
 
-```
-Metric | Status | Archive Value | Target Value | Difference
-Archive vs Target Issues (expected +1 for migration log) | ✅ PASS | 6 (expected target: 7) | 7 | Perfect match
-Archive vs Target Pull Requests | ✅ PASS | 29 | 29 | Perfect match
-Archive vs Target Protected Branches | ✅ PASS | 1 | 1 | Perfect match
-Archive vs Target Releases | ✅ PASS | 25 | 25 | Perfect match
+Metric                           | Status  | Source API Value | Archive Value | Difference
+Archive vs Source Issues         | ❌ FAIL | 2                | 6             | Missing: 4
+Archive vs Source Pull Requests  | ✅ PASS | 29               | 29            | Perfect match
+Archive vs Source Protected Branches | ✅ PASS | 1            | 1             | Perfect match
+Archive vs Source Releases       | ✅ PASS | 25               | 25            | Perfect match
 
-📊 Passed: 16
-📊 Failed: 1
-📊 Warnings: 1
+🎯 Migration Archive vs Target Validation
 
-ERROR ❌ Migration validation FAILED - Some data is missing in target
+Metric                                                    | Status  | Archive Value | Target Value | Difference
+Archive vs Target Issues (expected +1 for migration log)  | ✅ PASS | 6 (expected target: 7) | 7     | Perfect match
+Archive vs Target Pull Requests                           | ✅ PASS | 29            | 29           | Perfect match
+Archive vs Target Protected Branches                      | ✅ PASS | 1             | 1            | Perfect match
+Archive vs Target Releases                                | ✅ PASS | 25            | 25           | Perfect match
 
+📊 Passed: 16  📊 Failed: 1  📊 Warnings: 1
+
+❌ Migration validation FAILED - Some data is missing in target
 ```
 
 ### Markdown Output

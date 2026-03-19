@@ -431,6 +431,10 @@ func (mv *MigrationValidator) ValidateFromExport(targetOwner, targetRepo string)
 // This supports BBS migrations where certain metrics (issues, releases, LFS) should be skipped
 // and branch permissions should be advisory-only.
 func (mv *MigrationValidator) ValidateWithOptions(targetOwner, targetRepo string, opts ValidationOptions) ([]ValidationResult, error) {
+	if mv.api == nil {
+		return nil, fmt.Errorf("API client is not initialized")
+	}
+
 	// Validate that source data is already loaded
 	if mv.SourceData == nil || mv.SourceData.Owner == "" || mv.SourceData.Name == "" {
 		return nil, fmt.Errorf("source data not properly loaded - call SetSourceData or SetSourceDataFromExport with valid data first")

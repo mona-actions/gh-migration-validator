@@ -79,7 +79,7 @@ func NewBBSClient(baseURL, token string) (*BBSClient, error) {
 
 // ValidateRepoAccess verifies that the client can authenticate and access the specified repository.
 func (c *BBSClient) ValidateRepoAccess(project, repo string) error {
-	path := fmt.Sprintf("/rest/api/1.0/projects/%s/repos/%s", project, repo)
+	path := fmt.Sprintf("/rest/api/1.0/projects/%s/repos/%s", url.PathEscape(project), url.PathEscape(repo))
 	_, err := c.doGet(path)
 	if err != nil {
 		return fmt.Errorf("cannot access repository %s/%s: %w", project, repo, err)
@@ -241,19 +241,19 @@ func (c *BBSClient) getPRCounts(project, repo string) (*api.PRCounts, error) {
 }
 
 func (c *BBSClient) getPRCountByState(project, repo, state string) (int, error) {
-	path := fmt.Sprintf("/rest/api/1.0/projects/%s/repos/%s/pull-requests?state=%s", project, repo, state)
+	path := fmt.Sprintf("/rest/api/1.0/projects/%s/repos/%s/pull-requests?state=%s", url.PathEscape(project), url.PathEscape(repo), state)
 	return c.getPaginatedCount(path, fmt.Sprintf("%s PR count", state))
 }
 
 // getTagCount retrieves the total number of tags in the repository.
 func (c *BBSClient) getTagCount(project, repo string) (int, error) {
-	path := fmt.Sprintf("/rest/api/1.0/projects/%s/repos/%s/tags", project, repo)
+	path := fmt.Sprintf("/rest/api/1.0/projects/%s/repos/%s/tags", url.PathEscape(project), url.PathEscape(repo))
 	return c.getPaginatedCount(path, "tag count")
 }
 
 // getDefaultBranch retrieves the default branch name for the repository.
 func (c *BBSClient) getDefaultBranch(project, repo string) (string, error) {
-	path := fmt.Sprintf("/rest/api/1.0/projects/%s/repos/%s/default-branch", project, repo)
+	path := fmt.Sprintf("/rest/api/1.0/projects/%s/repos/%s/default-branch", url.PathEscape(project), url.PathEscape(repo))
 	body, err := c.doGet(path)
 	if err != nil {
 		return "", fmt.Errorf("failed to get default branch: %w", err)
@@ -272,7 +272,7 @@ func (c *BBSClient) getDefaultBranch(project, repo string) (string, error) {
 
 // getCommitCount retrieves the total number of commits on the specified branch.
 func (c *BBSClient) getCommitCount(project, repo, branch string) (int, error) {
-	path := fmt.Sprintf("/rest/api/1.0/projects/%s/repos/%s/commits?limit=0&until=%s", project, repo, url.QueryEscape(branch))
+	path := fmt.Sprintf("/rest/api/1.0/projects/%s/repos/%s/commits?limit=0&until=%s", url.PathEscape(project), url.PathEscape(repo), url.QueryEscape(branch))
 	body, err := c.doGet(path)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get commit count: %w", err)
@@ -298,7 +298,7 @@ func (c *BBSClient) paginateCommitCount(project, repo, branch string) (int, erro
 
 	for {
 		path := fmt.Sprintf("/rest/api/1.0/projects/%s/repos/%s/commits?limit=1000&until=%s&start=%d",
-			project, repo, url.QueryEscape(branch), start)
+			url.PathEscape(project), url.PathEscape(repo), url.QueryEscape(branch), start)
 		body, err := c.doGet(path)
 		if err != nil {
 			return 0, fmt.Errorf("failed to paginate commits: %w", err)
@@ -321,7 +321,7 @@ func (c *BBSClient) paginateCommitCount(project, repo, branch string) (int, erro
 
 // getLatestCommitHash retrieves the hash of the latest commit on the specified branch.
 func (c *BBSClient) getLatestCommitHash(project, repo, branch string) (string, error) {
-	path := fmt.Sprintf("/rest/api/1.0/projects/%s/repos/%s/commits?limit=1&until=%s", project, repo, url.QueryEscape(branch))
+	path := fmt.Sprintf("/rest/api/1.0/projects/%s/repos/%s/commits?limit=1&until=%s", url.PathEscape(project), url.PathEscape(repo), url.QueryEscape(branch))
 	body, err := c.doGet(path)
 	if err != nil {
 		return "", fmt.Errorf("failed to get latest commit: %w", err)
@@ -347,13 +347,13 @@ func (c *BBSClient) getLatestCommitHash(project, repo, branch string) (string, e
 // getBranchPermissionsCount retrieves the number of branch permission restrictions.
 // This uses the branch-permissions API (separate from the core REST API).
 func (c *BBSClient) getBranchPermissionsCount(project, repo string) (int, error) {
-	path := fmt.Sprintf("/rest/branch-permissions/2.0/projects/%s/repos/%s/restrictions", project, repo)
+	path := fmt.Sprintf("/rest/branch-permissions/2.0/projects/%s/repos/%s/restrictions", url.PathEscape(project), url.PathEscape(repo))
 	return c.getPaginatedCount(path, "branch permissions count")
 }
 
 // getWebhookCount retrieves the number of webhooks configured for the repository.
 func (c *BBSClient) getWebhookCount(project, repo string) (int, error) {
-	path := fmt.Sprintf("/rest/api/1.0/projects/%s/repos/%s/webhooks", project, repo)
+	path := fmt.Sprintf("/rest/api/1.0/projects/%s/repos/%s/webhooks", url.PathEscape(project), url.PathEscape(repo))
 	return c.getPaginatedCount(path, "webhook count")
 }
 
