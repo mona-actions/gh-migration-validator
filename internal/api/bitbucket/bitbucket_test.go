@@ -142,37 +142,14 @@ _, err := client.doGet("/test")
 assert.NoError(t, err)
 }
 
-func TestDoGet_RetriesOn429(t *testing.T) {
-var attempts int32
+func TestDoGet_Returns429Error(t *testing.T) {
 client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-count := atomic.AddInt32(&attempts, 1)
-if count <= 2 {
-w.WriteHeader(http.StatusTooManyRequests)
-return
-}
-w.WriteHeader(http.StatusOK)
-fmt.Fprint(w, `{"ok":true}`)
-}))
-
-body, err := client.doGet("/rate-limited")
-assert.NoError(t, err)
-assert.Contains(t, string(body), "ok")
-assert.Equal(t, int32(3), atomic.LoadInt32(&attempts))
-}
-
-func TestDoGet_FailsAfterMaxRetries429(t *testing.T) {
-var attempts int32
-client := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-atomic.AddInt32(&attempts, 1)
 w.WriteHeader(http.StatusTooManyRequests)
 }))
 
-_, err := client.doGet("/always-429")
+_, err := client.doGet("/rate-limited")
 assert.Error(t, err)
 assert.Contains(t, err.Error(), "rate limited (429)")
-assert.Contains(t, err.Error(), "after 3 retries")
-// initial attempt + 3 retries = 4 total
-assert.Equal(t, int32(4), atomic.LoadInt32(&attempts))
 }
 
 func TestDoGet_UnexpectedStatus(t *testing.T) {

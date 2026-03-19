@@ -1,10 +1,15 @@
 # GitHub Migration Validator
 
-A GitHub CLI extension for validating GitHub organization and repository migrations by comparing key metrics between source and target repositories.
+A GitHub CLI extension for validating GitHub organization and repository migrations by comparing key metrics between source and target repositories. Supports GitHub-to-GitHub and Bitbucket Server (Data Center) to GitHub migrations.
 
 ## Overview
 
-The GitHub Migration Validator helps ensure that your migration from one GitHub organization/repository to another has been completed successfully. It compares various repository metrics (issues, pull requests, tags, releases, commits) between source and target repositories and provides a detailed validation report.
+The GitHub Migration Validator helps ensure that your migration to GitHub has been completed successfully. It compares various repository metrics (issues, pull requests, tags, releases, commits) between source and target repositories and provides a detailed validation report.
+
+Supported sources:
+
+- **GitHub** (organization/repository) — full validation including migration archives
+- **Bitbucket Server / Data Center** — API-based validation
 
 ## Documentation
 
@@ -61,20 +66,39 @@ gh migration-validator \
 
 ### Environment Variables
 
-You can use environment variables instead of flags:
+You can use environment variables instead of flags. All environment variables use the `GHMV_` prefix.
+
+#### Source (GitHub-to-GitHub)
 
 ```bash
 export GHMV_SOURCE_ORGANIZATION="source-org"
-export GHMV_TARGET_ORGANIZATION="target-org"
 export GHMV_SOURCE_TOKEN="ghp_xxx"
-export GHMV_TARGET_TOKEN="ghp_yyy"
 export GHMV_SOURCE_REPO="my-repo"
-export GHMV_TARGET_REPO="my-repo"
-export GHMV_MARKDOWN_TABLE="true"
-export GHMV_MARKDOWN_FILE="validation-report.md"
-export GHMV_NO_LFS="true"  # Optional: skip LFS validation
-export GHMV_STRICT_EXIT="true"  # Optional: exit with status 2 when validations fail
+export GHMV_SOURCE_HOSTNAME="https://github.example.com"  # Optional: GitHub Enterprise Server
+```
 
+#### Target (shared across all subcommands)
+
+```bash
+export GHMV_TARGET_ORGANIZATION="target-org"
+export GHMV_TARGET_TOKEN="ghp_yyy"
+export GHMV_TARGET_REPO="my-repo"
+export GHMV_TARGET_HOSTNAME="https://github.example.com"  # Optional: GitHub Enterprise Server
+```
+
+#### Output & Behavior
+
+```bash
+export GHMV_MARKDOWN_TABLE="true"                  # Output as markdown table
+export GHMV_MARKDOWN_FILE="validation-report.md"   # Write markdown to file
+export GHMV_NO_LFS="true"                          # Skip LFS validation
+export GHMV_STRICT_EXIT="true"                     # Exit code 2 on validation failures
+export GHMV_RATE_LIMIT_THRESHOLD="100"             # GitHub API rate limit warning threshold (default: 50, 0 to disable)
+```
+
+#### Basic Run
+
+```bash
 gh migration-validator
 ```
 
@@ -243,6 +267,7 @@ gh migration-validator export \
 - `--markdown-table` (optional): Output results in markdown format
 - `--markdown-file` (optional): Write markdown output to the specified file; uses the same content without the surrounding ```markdown fences
 - `--no-lfs` (optional): Skip LFS object validation
+- `--strict-exit` (optional): Exit with status 2 on validation failures
 
 ### Environment Variables for Validate-from-Export
 
@@ -306,25 +331,30 @@ export GHMV_BBS_SERVER_URL="https://bitbucket.example.com"
 export GHMV_BBS_PROJECT="PROJ"
 export GHMV_BBS_REPO="my-repo"
 export GHMV_BBS_TOKEN="your-bbs-token"
+export GHMV_TARGET_ORGANIZATION="target-org"
 export GHMV_TARGET_TOKEN="ghp_yyy"
-
-gh migration-validator bitbucket \
-  --github-target-org "target-org" \
-  --target-repo "my-repo"
+export GHMV_TARGET_REPO="my-repo"
+gh migration-validator bitbucket
 ```
 
 ### Bitbucket Options
 
-- `--bbs-server-url` / `-H` (required): Bitbucket Server URL (aligned with GEI bbs2gh)
+#### Bitbucket Source Flags
+
+- `--bbs-server-url` / `-H` (required): Bitbucket Server URL (aligned with [GEI `bbs2gh`](https://docs.github.com/en/migrations/using-github-enterprise-importer/migrating-from-bitbucket-server-to-github-enterprise-cloud/migrating-repositories-from-bitbucket-server-to-github-enterprise-cloud))
 - `--bbs-project` / `-p` (required): Project key (use `~username` for personal repos)
 - `--bbs-repo` / `-r` (required): Repository slug
-- `--bbs-token` / `-k`: Personal access token (or use `GHMV_BBS_TOKEN` env var)
+- `--bbs-token` / `-k` (required): Personal access token (or `GHMV_BBS_TOKEN`)
+
+#### Shared Target Flags (inherited from root)
+
 - `--github-target-org` / `-t` (required): Target GitHub organization
-- `--github-target-pat` / `-b`: Target GitHub token
-- `--target-hostname` / `-v`: GitHub Enterprise Server URL (optional)
+- `--github-target-pat` / `-b` (required): Target GitHub token (or `GHMV_TARGET_TOKEN`)
 - `--target-repo` (required): Target repository name
+- `--target-hostname` / `-v`: GitHub Enterprise Server URL (optional)
 - `--markdown-table` / `-m`: Output results in markdown format
 - `--markdown-file`: Write markdown output to the specified file
+- `--no-lfs`: Skip LFS object validation
 - `--strict-exit`: Exit with status 2 on validation failures
 
 ### What Gets Validated (Bitbucket → GitHub)
@@ -371,6 +401,7 @@ The tool compares the following metrics between source and target repositories:
 - ✅ **PASS**: Metrics match expected values
 - ❌ **FAIL**: Target is missing data from source
 - ⚠️ **WARN**: Target has more data than source (usually acceptable)
+- ℹ️ **INFO**: Advisory comparison only (e.g., Bitbucket branch permissions vs GitHub branch protection)
 
 ## Output Formats
 

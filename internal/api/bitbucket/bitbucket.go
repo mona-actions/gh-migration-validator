@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -390,60 +389,45 @@ func (c *BBSClient) getPaginatedCount(basePath, label string) (int, error) {
 	return total, nil
 }
 
-// doGet performs an authenticated GET request to the BBS API with retry logic.
+// doGet performs an authenticated GET request to the BBS API.
 func (c *BBSClient) doGet(path string) ([]byte, error) {
 	url := c.baseURL + path
 
-	const maxRetries = 3
-	var lastErr error
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request for %s: %w", path, err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Accept", "application/json")
 
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		req, err := http.NewRequest("GET", url, nil)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create request for %s: %w", path, err)
-		}
-		req.Header.Set("Authorization", "Bearer "+c.token)
-		req.Header.Set("Accept", "application/json")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed for %s: %w", path, err)
+	}
+	defer resp.Body.Close()
 
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			lastErr = fmt.Errorf("request failed for %s: %w", path, err)
-			continue
-		}
-
-		body, readErr := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if readErr != nil {
-			lastErr = fmt.Errorf("failed to read response body for %s: %w", path, readErr)
-			continue
-		}
-
-		switch resp.StatusCode {
-		case http.StatusOK:
-			return body, nil
-
-		case http.StatusTooManyRequests:
-			if attempt < maxRetries {
-				backoff := time.Duration(math.Pow(2, float64(attempt))) * time.Second
-				time.Sleep(backoff)
-				lastErr = fmt.Errorf("rate limited (429) on %s", path)
-				continue
-			}
-			return nil, fmt.Errorf("rate limited (429) on %s after %d retries", path, maxRetries)
-
-		case http.StatusUnauthorized:
-			return nil, fmt.Errorf("authentication failed (401) for %s: check your BBS token", path)
-
-		case http.StatusForbidden:
-			return nil, fmt.Errorf("access denied (403) for %s: insufficient permissions", path)
-
-		case http.StatusNotFound:
-			return nil, fmt.Errorf("not found (404) for %s: verify the project/repo exists", path)
-
-		default:
-			return nil, fmt.Errorf("unexpected status %d for %s: %s", resp.StatusCode, path, string(body))
-		}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body for %s: %w", path, err)
 	}
 
-	return nil, lastErr
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return body, nil
+
+	case http.StatusTooManyRequests:
+		return nil, fmt.Errorf("rate limited (429) on %s: try again later", path)
+
+	case http.StatusUnauthorized:
+		return nil, fmt.Errorf("authentication failed (401) for %s: check your BBS token", path)
+
+	case http.StatusForbidden:
+		return nil, fmt.Errorf("access denied (403) for %s: insufficient permissions", path)
+
+	case http.StatusNotFound:
+		return nil, fmt.Errorf("not found (404) for %s: verify the project/repo exists", path)
+
+	default:
+		return nil, fmt.Errorf("unexpected status %d for %s: %s", resp.StatusCode, path, string(body))
+	}
 }
