@@ -125,7 +125,7 @@ func (api *GitHubAPI) GetLFSObjects(clientType ClientType, owner, name string) (
 
 		// Check if this file matches any LFS pattern
 		filePath := entry.GetPath()
-		if !matchesLFSPattern(filePath, lfsPatterns) {
+		if !MatchesLFSPattern(filePath, lfsPatterns) {
 			continue
 		}
 
@@ -156,7 +156,7 @@ func (api *GitHubAPI) GetLFSObjects(clientType ClientType, owner, name string) (
 		}
 
 		// Check if this is an LFS pointer file and extract the OID
-		if lfsObj, isLFS := parseLFSPointer(content); isLFS {
+		if lfsObj, isLFS := ParseLFSPointer(content); isLFS {
 			// Deduplicate by OID
 			if !seenOIDs[lfsObj.OID] {
 				lfsObjects = append(lfsObjects, lfsObj)
@@ -206,11 +206,11 @@ func (api *GitHubAPI) getLFSPatternsFromGitAttributes(ctx context.Context, restC
 	}
 
 	// Parse the .gitattributes file for LFS patterns
-	return parseLFSPatterns(content), nil
+	return ParseLFSPatterns(content), nil
 }
 
-// parseLFSPatterns extracts file patterns that are tracked by LFS from .gitattributes content
-func parseLFSPatterns(content string) []string {
+// ParseLFSPatterns extracts file patterns that are tracked by LFS from .gitattributes content
+func ParseLFSPatterns(content string) []string {
 	patterns := make([]string, 0)
 	lines := strings.Split(content, "\n")
 
@@ -236,9 +236,16 @@ func parseLFSPatterns(content string) []string {
 	return patterns
 }
 
-// matchesLFSPattern checks if a file path matches any of the LFS patterns
-func matchesLFSPattern(filePath string, patterns []string) bool {
+// MatchesLFSPattern checks if a file path matches any of the LFS patterns
+func MatchesLFSPattern(filePath string, patterns []string) bool {
+	// Normalize the path so anchored patterns compare correctly.
+	filePath = strings.TrimPrefix(filePath, "/")
+
 	for _, pattern := range patterns {
+		// A leading "/" in .gitattributes anchors the pattern to the repository root
+		// (e.g. "/dir/file.bin"). Strip it so it matches the root-relative file path.
+		pattern = strings.TrimPrefix(pattern, "/")
+
 		// Handle different pattern types
 		if strings.HasPrefix(pattern, "*") {
 			// Extension pattern like "*.psd"
@@ -317,7 +324,7 @@ func (api *GitHubAPI) getLFSObjectsFallback(ctx context.Context, restClient *git
 		}
 
 		// Check if this is an LFS pointer file
-		if lfsObj, isLFS := parseLFSPointer(content); isLFS {
+		if lfsObj, isLFS := ParseLFSPointer(content); isLFS {
 			// Deduplicate by OID
 			if !seenOIDs[lfsObj.OID] {
 				lfsObjects = append(lfsObjects, lfsObj)
@@ -329,9 +336,9 @@ func (api *GitHubAPI) getLFSObjectsFallback(ctx context.Context, restClient *git
 	return lfsObjects, nil
 }
 
-// parseLFSPointer parses a blob content to check if it's an LFS pointer file
+// ParseLFSPointer parses a blob content to check if it's an LFS pointer file
 // and extracts the OID and size if it is
-func parseLFSPointer(content string) (LFSObject, bool) {
+func ParseLFSPointer(content string) (LFSObject, bool) {
 	// LFS pointer files are small text files with a specific format
 	// Example:
 	// version https://git-lfs.github.com/spec/v1

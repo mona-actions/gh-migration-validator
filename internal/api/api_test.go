@@ -1042,6 +1042,61 @@ func TestGetLatestCommitHash(t *testing.T) {
 	}
 }
 
+func TestGetLatestCommitParentHash(t *testing.T) {
+	viper.Set("SOURCE_TOKEN", "source-token")
+	viper.Set("TARGET_TOKEN", "target-token")
+
+	tests := []struct {
+		name       string
+		clientType ClientType
+		owner      string
+		repo       string
+		wantError  bool
+	}{
+		{
+			name:       "source client valid request",
+			clientType: SourceClient,
+			owner:      "testowner",
+			repo:       "testrepo",
+			wantError:  true, // Will error in test due to no real connection
+		},
+		{
+			name:       "target client valid request",
+			clientType: TargetClient,
+			owner:      "testowner",
+			repo:       "testrepo",
+			wantError:  true, // Will error in test due to no real connection
+		},
+		{
+			name:       "invalid client type",
+			clientType: ClientType(999),
+			owner:      "testowner",
+			repo:       "testrepo",
+			wantError:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			api, err := NewGitHubAPI()
+			if err != nil {
+				t.Fatalf("Failed to create API client: %v", err)
+			}
+
+			_, err = api.GetLatestCommitParentHash(tt.clientType, tt.owner, tt.repo)
+
+			gotError := err != nil
+			if gotError && !tt.wantError {
+				t.Errorf("GetLatestCommitParentHash() unexpected error: %v", err)
+				return
+			}
+			if !gotError && tt.wantError {
+				t.Error("GetLatestCommitParentHash() expected error, got nil")
+			}
+		})
+	}
+}
+
 func TestPRCounts_TotalCalculation(t *testing.T) {
 	tests := []struct {
 		name   string

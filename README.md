@@ -1,6 +1,6 @@
 # GitHub Migration Validator
 
-A GitHub CLI extension for validating GitHub organization and repository migrations by comparing key metrics between source and target repositories. Supports GitHub-to-GitHub and Bitbucket Server (Data Center) to GitHub migrations.
+A GitHub CLI extension for validating GitHub organization and repository migrations by comparing key metrics between source and target repositories. Supports GitHub-to-GitHub, Bitbucket Server (Data Center) to GitHub, and Azure DevOps (Server or Services/cloud) to GitHub migrations.
 
 ## Overview
 
@@ -10,10 +10,15 @@ Supported sources:
 
 - **GitHub** (organization/repository) — full validation including migration archives
 - **Bitbucket Server / Data Center** — API-based validation
+- **Azure DevOps** (Server on-prem or Services/cloud) — API-based validation (single repo or whole team project)
 
 ## Documentation
 
-- **[Migration Archive Support](docs/migration-archive.md)** - Comprehensive guide for enhanced validation using GitHub migration archives
+- **[Export & Validate-from-Export](docs/export.md)** - Point-in-time export and validation workflow
+- **[Validate Organization](docs/validate-org.md)** - Org-level migration validation (GitHub → GitHub)
+- **[Bitbucket Validation](docs/bitbucket.md)** - Bitbucket Server / Data Center to GitHub
+- **[Azure DevOps Validation](docs/ado.md)** - Azure DevOps (Server or Services/cloud) to GitHub
+- **[Migration Archive Support](docs/migration-archive.md)** - Enhanced validation using GitHub migration archives
 
 ## Install
 
@@ -143,348 +148,27 @@ export GHMV_SOURCE_HOSTNAME="https://github.example.com"
 
 ## Export and Validation Workflow
 
-The tool provides both export and validation capabilities that work together to enable point-in-time migration validation:
+Export source repository data at a specific point in time, then validate the target against that snapshot. Useful when the source continues to receive changes during migration.
 
-1. **Export**: Capture repository data at a specific point in time
-2. **Validate-from-Export**: Validate target repositories against exported snapshots
-
-This workflow is particularly useful when:
-
-- The source repository continues to receive changes during migration
-- You need to validate against the exact state when migration occurred
-- You want to create audit trails of migration validation
-
-### Export Usage
-
-```bash
-gh migration-validator export \
-  --github-source-org "source-org" \
-  --source-repo "my-repo" \
-  --github-source-pat "ghp_xxx" \
-  --format json \
-  --output ".exports/my-export.json"
-```
-
-### Export with Migration Archive
-
-The tool can also download and analyze migration archives to include additional validation metrics. See the [Migration Archive Documentation](docs/migration-archive.md) for detailed information.
-
-### Export Options
-
-- `--github-source-org` (required): Source organization name
-- `--source-repo` (required): Source repository name
-- `--github-source-pat` (required): GitHub token with read permissions
-- `--source-hostname` (optional): GitHub Enterprise Server URL
-- `--format` (optional): Export format - `json` or `csv` (default: `json`)
-- `--output` (optional): Output file path (auto-generated if not specified)
-- `--download` (optional): Download and analyze migration archive automatically
-- `--download-path` (optional): Directory to download migration archives to (default: ./migration-archives)
-- `--archive-path` (optional): Path to an existing extracted migration archive directory
-- `--no-lfs` (optional): Skip LFS object validation
-
-**Note**: `--download` and `--archive-path` are mutually exclusive. For detailed migration archive usage, see [Migration Archive Documentation](docs/migration-archive.md).
-
-### Export Output Formats
-
-**JSON Format:**
-
-```json
-{
-  "export_timestamp": "2025-10-13T14:49:08Z",
-  "repository_data": {
-    "owner": "source-org",
-    "name": "my-repo",
-    "issues": 42,
-    "pull_requests": {
-      "open": 5,
-      "closed": 10,
-      "merged": 15,
-      "total": 30
-    },
-    "tags": 8,
-    "releases": 3,
-    "commits": 150,
-    "latest_commit_sha": "abc123def456",
-    "branch_protection_rules": 4,
-    "webhooks": 2
-  },
-  "migration_archive": {
-    "issues": 42,
-    "pull_requests": 30,
-    "protected_branches": 1,
-    "releases": 3
-  }
-}
-```
-
-When migration archive data is included, the export will contain additional `migration_archive` metrics. See [Migration Archive Documentation](docs/migration-archive.md) for details.
-
-**CSV Format:**
-
-Contains the same data in CSV format with headers for easy analysis in spreadsheet applications.
-
-### Default Export Location
-
-When no output file is specified, exports are automatically saved to `.exports/` directory with timestamped filenames:
-
-- `.exports/{owner}_{repo}_export_{timestamp}.{format}`
-
-Example: `.exports/mona-actions_my-repo_export_20251002_144908.json`
-
-## Validate-from-Export
-
-The `validate-from-export` command allows you to validate a target repository against a previously exported snapshot of source repository data. This is essential for validating migrations when the source repository may have changed since the migration occurred.
-
-### Validate-from-Export Usage
-
-```bash
-gh migration-validator validate-from-export \
-  --export-file ".exports/mona-actions_my-repo_export_20251002_144908.json" \
-  --github-target-org "target-org" \
-  --target-repo "my-repo" \
-  --github-target-pat "ghp_yyy"
-```
-
-### Using Existing Archive Directory
-
-If you already have an extracted migration archive directory:
-
-```bash
-gh migration-validator export \
-  --github-source-org "source-org" \
-  --source-repo "my-repo" \
-  --github-source-pat "ghp_xxx" \
-  --archive-path "path/to/extracted/migration-archive"
-```
-
-### Validate-from-Export Options
-
-- `--export-file` (required): Path to the exported JSON file containing source data
-- `--github-target-org` (required): Target organization name
-- `--target-repo` (required): Target repository name
-- `--github-target-pat` (required): GitHub token with read permissions for target
-- `--target-hostname` (optional): GitHub Enterprise Server URL for target
-- `--markdown-table` (optional): Output results in markdown format
-- `--markdown-file` (optional): Write markdown output to the specified file; uses the same content without the surrounding ```markdown fences
-- `--no-lfs` (optional): Skip LFS object validation
-- `--strict-exit` (optional): Exit with status 2 on validation failures
-
-### Environment Variables for Validate-from-Export
-
-```bash
-export GHMV_TARGET_ORGANIZATION="target-org"
-export GHMV_TARGET_TOKEN="ghp_yyy"
-export GHMV_TARGET_REPO="my-repo"
-export GHMV_MARKDOWN_TABLE="true"
-export GHMV_MARKDOWN_FILE="validation-report.md"
-export GHMV_NO_LFS="true"  # Optional: skip LFS validation
-
-gh migration-validator validate-from-export --export-file "path/to/export.json"
-```
-
-### Complete Export and Validation Workflow
-
-1. **Export source data before migration:**
-
-   ```bash
-   gh migration-validator export \
-     --github-source-org "source-org" \
-     --source-repo "my-repo" \
-     --github-source-pat "ghp_xxx"
-   ```
-
-2. **Perform your migration** (using GitHub's migration tools)
-
-3. **Validate against the export:**
-
-   ```bash
-   gh migration-validator validate-from-export \
-     --export-file ".exports/source-org_my-repo_export_20251002_144908.json" \
-     --github-target-org "target-org" \
-     --target-repo "my-repo" \
-     --github-target-pat "ghp_yyy"
-   ```
-
-This ensures you're validating against the exact state of the source repository when the migration occurred, regardless of any subsequent changes.
+For full usage, options, and workflow details, see **[Export & Validate-from-Export](docs/export.md)**.
 
 ## Validate Organization
 
-The `validate-org` command validates repositories migrated from a source organization to a target organization in a single run, producing one consolidated report.
+Validate all repositories migrated from a source GitHub organization to a target organization in a single run, with an optional CSV mapping file for different source/target names.
 
-By default it lists all repositories in the source org and validates each one against the same-named repo in the target org. This works well for **org-by-org migrations** (e.g. using GEI) where repository names are preserved and all repos (including forks and archives) are migrated. Forked repos have issue validation skipped automatically since forks have issues disabled.
-
-When source and target repository names differ, or you only want to validate a subset, provide a CSV mapping file via `--repo-list`.
-
-### Validate-Org Usage
-
-```bash
-gh migration-validator validate-org \
-  --github-source-org "source-org" \
-  --github-target-org "target-org" \
-  --github-source-pat "ghp_xxx" \
-  --github-target-pat "ghp_yyy"
-```
-
-### With Repository Mapping (CSV)
-
-When not all source repos exist in the target, or names differ:
-
-```csv
-# repos.csv
-source_repo,target_repo
-my-app,my-app-migrated
-shared-lib,shared-lib
-internal-tools,internal-tools
-```
-
-```bash
-gh migration-validator validate-org \
-  --github-source-org "source-org" \
-  --github-target-org "target-org" \
-  --github-source-pat "ghp_xxx" \
-  --github-target-pat "ghp_yyy" \
-  --repo-list repos.csv
-```
-
-If a CSV line has only one column, the target name is assumed to match the source. Lines starting with `#` are comments. A header row of `source_repo,target_repo` or `source,target` is automatically skipped.
-
-### With Markdown Report
-
-```bash
-gh migration-validator validate-org \
-  --github-source-org "source-org" \
-  --github-target-org "target-org" \
-  --github-source-pat "ghp_xxx" \
-  --github-target-pat "ghp_yyy" \
-  --markdown-table \
-  --markdown-file "org-validation-report.md"
-```
-
-When `--markdown-file` is specified, results are written incrementally after each repository completes, so partial progress survives interruptions (e.g. Ctrl+C).
-
-### Environment Variables for Validate-Org
-
-```bash
-export GHMV_SOURCE_ORGANIZATION="source-org"
-export GHMV_SOURCE_TOKEN="ghp_xxx"
-export GHMV_TARGET_ORGANIZATION="target-org"
-export GHMV_TARGET_TOKEN="ghp_yyy"
-
-gh migration-validator validate-org
-```
-
-### Validate-Org Options
-
-#### Source Flags
-
-- `--github-source-org` / `-s` (required): Source GitHub organization
-- `--github-source-pat` / `-a` (required): Source GitHub token with read permissions
-- `--source-hostname` / `-u` (optional): GitHub Enterprise Server URL for source
-
-#### Repository Selection
-
-- `--repo-list` (optional): Path to CSV file with `source_repo,target_repo` mappings. When omitted, all repos from the source org are validated with matching names.
-
-#### Shared Target Flags (inherited from root)
-
-- `--github-target-org` / `-t` (required): Target GitHub organization
-- `--github-target-pat` / `-b` (required): Target GitHub token with read permissions
-- `--target-hostname` / `-v` (optional): GitHub Enterprise Server URL for target
-- `--markdown-table` / `-m`: Output results in markdown format
-- `--markdown-file`: Write consolidated markdown report to a file
-- `--no-lfs`: Skip LFS object validation
-- `--strict-exit`: Exit with status 2 on validation failures
-
-### How It Works
-
-1. Determines repositories to validate, either from `--repo-list` CSV or by listing all repos in the source org
-2. For each repo pair, validates source against target (names can differ when using CSV mapping)
-3. Repos that fail or cannot be accessed are recorded with an error but do not stop validation of remaining repos
-4. When `--markdown-file` is set, the report is updated after each repo (incremental writes)
-5. Produces a **single summary table** with per-repository pass/fail/warn/info status
-
-### Output
-
-The consolidated report includes:
-
-- A summary table with each repository's overall status (pass/fail/warn/info)
-- Total counts across all repositories
-- Per-repository detailed validation results (in the markdown report)
+For full usage, options, and output details, see **[Validate Organization](docs/validate-org.md)**.
 
 ## Bitbucket Validation
 
-The `bitbucket` subcommand validates migrations from Bitbucket (Server / Data Center) to GitHub by comparing API metrics between the source Bitbucket instance and the target GitHub repository. This is useful for verifying that repository data was migrated correctly when moving from Bitbucket to GitHub.
+Validate migrations from Bitbucket Server / Data Center to GitHub. Compares PRs, tags, commits, branch permissions, and webhooks.
 
-### Bitbucket Usage
+For full usage, options, and validation details, see **[Bitbucket Validation](docs/bitbucket.md)**.
 
-```bash
-gh migration-validator bitbucket \
-  --bbs-server-url "https://bitbucket.example.com" \
-  --bbs-project "PROJ" \
-  --bbs-repo "my-repo" \
-  --bbs-token "your-bbs-token" \
-  --github-target-org "target-org" \
-  --target-repo "my-repo" \
-  --github-target-pat "ghp_yyy"
-```
+## Azure DevOps Validation
 
-### Environment Variables for Bitbucket
+Validate migrations from Azure DevOps (Server or Services/cloud) to GitHub. Supports single-repo and project-level validation with optional CSV mapping. Compares PRs, tags, commits, LFS objects, branch policies, and service hooks.
 
-```bash
-export GHMV_BBS_SERVER_URL="https://bitbucket.example.com"
-export GHMV_BBS_PROJECT="PROJ"
-export GHMV_BBS_REPO="my-repo"
-export GHMV_BBS_TOKEN="your-bbs-token"
-export GHMV_TARGET_ORGANIZATION="target-org"
-export GHMV_TARGET_TOKEN="ghp_yyy"
-export GHMV_TARGET_REPO="my-repo"
-gh migration-validator bitbucket
-```
-
-### Bitbucket Options
-
-#### Bitbucket Source Flags
-
-- `--bbs-server-url` / `-H` (required): Bitbucket Server URL (aligned with [GEI `bbs2gh`](https://docs.github.com/en/migrations/using-github-enterprise-importer/migrating-from-bitbucket-server-to-github-enterprise-cloud/migrating-repositories-from-bitbucket-server-to-github-enterprise-cloud))
-- `--bbs-project` / `-p` (required): Project key (use `~username` for personal repos)
-- `--bbs-repo` / `-r` (required): Repository slug
-- `--bbs-token` / `-k` (required): Personal access token (or `GHMV_BBS_TOKEN`)
-
-#### Shared Target Flags (inherited from root)
-
-- `--github-target-org` / `-t` (required): Target GitHub organization
-- `--github-target-pat` / `-b` (required): Target GitHub token (or `GHMV_TARGET_TOKEN`)
-- `--target-repo` (required): Target repository name
-- `--target-hostname` / `-v`: GitHub Enterprise Server URL (optional)
-- `--markdown-table` / `-m`: Output results in markdown format
-- `--markdown-file`: Write markdown output to the specified file
-- `--no-lfs`: Skip LFS object validation
-- `--strict-exit`: Exit with status 2 on validation failures
-
-### What Gets Validated (Bitbucket → GitHub)
-
-| Metric                                               | Status      | Notes                                         |
-| ---------------------------------------------------- | ----------- | --------------------------------------------- |
-| Pull Requests (Total, Open, Merged, Declined→Closed) | ✅ Compared | Bitbucket "Declined" maps to GitHub "Closed"  |
-| Tags                                                 | ✅ Compared |                                               |
-| Commits                                              | ✅ Compared | Default branch only                           |
-| Latest Commit SHA                                    | ✅ Compared |                                               |
-| Branch Permissions vs Branch Protection Rules        | ℹ️ Advisory | Different concepts — shown for reference only |
-| Webhooks                                             | ✅ Compared |                                               |
-| Issues                                               | ⏭️ Skipped  | Bitbucket uses Jira, not native issues        |
-| Releases                                             | ⏭️ Skipped  | Bitbucket has no equivalent                   |
-| LFS Objects                                          | ⏭️ Skipped  | TODO                                          |
-
-### Bitbucket Notes
-
-- Requires Bitbucket Server 5.5+ (uses Bearer token PAT authentication)
-- The branch permissions comparison is advisory only (ℹ️ INFO) since Bitbucket branch permissions and GitHub branch protection rules are fundamentally different concepts
-
-## Migration Archive Support
-
-The tool supports working with GitHub migration archives for enhanced validation capabilities. Migration archives provide three-way validation comparing Source API ↔ Archive ↔ Target API data.
-
-For comprehensive documentation on migration archive features, workflow, and usage examples, see [Migration Archive Documentation](docs/migration-archive.md).
+For full usage, options, and validation details, see **[Azure DevOps Validation](docs/ado.md)**.
 
 ## What Gets Validated
 

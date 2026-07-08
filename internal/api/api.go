@@ -600,6 +600,50 @@ func (api *GitHubAPI) GetLatestCommitHash(clientType ClientType, owner, name str
 	return query.Repository.DefaultBranchRef.Target.Commit.OID, nil
 }
 
+// GetLatestCommitParentHash retrieves the OID of the first parent of the latest commit
+// on the default branch using GraphQL. It returns an empty string when the latest commit
+// is a root commit with no parent.
+func (api *GitHubAPI) GetLatestCommitParentHash(clientType ClientType, owner, name string) (string, error) {
+	ctx := context.Background()
+
+	var query struct {
+		Repository struct {
+			DefaultBranchRef struct {
+				Target struct {
+					Commit struct {
+						Parents struct {
+							Nodes []struct {
+								OID string
+							}
+						} `graphql:"parents(first: 1)"`
+					} `graphql:"... on Commit"`
+				}
+			}
+		} `graphql:"repository(owner: $owner, name: $name)"`
+	}
+
+	variables := map[string]interface{}{
+		"owner": githubv4.String(owner),
+		"name":  githubv4.String(name),
+	}
+
+	client, clientName, err := api.getGraphQLClient(clientType)
+	if err != nil {
+		return "", err
+	}
+
+	err = client.Query(ctx, &query, variables)
+	if err != nil {
+		return "", fmt.Errorf("failed to query %s repository latest commit parent hash: %v", clientName, err)
+	}
+
+	nodes := query.Repository.DefaultBranchRef.Target.Commit.Parents.Nodes
+	if len(nodes) == 0 {
+		return "", nil
+	}
+	return nodes[0].OID, nil
+}
+
 // GetBranchProtectionRulesCount retrieves the total count of branch protection rules for a repository using GraphQL
 func (api *GitHubAPI) GetBranchProtectionRulesCount(clientType ClientType, owner, name string) (int, error) {
 	ctx := context.Background()

@@ -11,7 +11,7 @@ func TestParseLFSPointer_ValidPointer(t *testing.T) {
 oid sha256:4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393
 size 12345`
 
-	obj, isLFS := parseLFSPointer(content)
+	obj, isLFS := ParseLFSPointer(content)
 
 	assert.True(t, isLFS, "Should identify valid LFS pointer")
 	assert.Equal(t, "4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393", obj.OID)
@@ -24,7 +24,7 @@ oid sha256:4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393
 size 12345  
 `
 
-	obj, isLFS := parseLFSPointer(content)
+	obj, isLFS := ParseLFSPointer(content)
 
 	assert.True(t, isLFS, "Should identify valid LFS pointer with extra whitespace")
 	assert.Equal(t, "4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393", obj.OID)
@@ -36,7 +36,7 @@ func TestParseLFSPointer_ValidPointerWithZeroSize(t *testing.T) {
 oid sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 size 0`
 
-	obj, isLFS := parseLFSPointer(content)
+	obj, isLFS := ParseLFSPointer(content)
 
 	assert.True(t, isLFS, "Should identify valid LFS pointer with size 0 (empty file)")
 	assert.Equal(t, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", obj.OID)
@@ -50,7 +50,7 @@ oid sha256:4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393
 size 12345
 `
 
-	obj, isLFS := parseLFSPointer(content)
+	obj, isLFS := ParseLFSPointer(content)
 
 	assert.True(t, isLFS, "Should identify valid LFS pointer after base64 decoding")
 	assert.Equal(t, "4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393", obj.OID)
@@ -62,7 +62,7 @@ func TestParseLFSPointer_NotLFSPointer(t *testing.T) {
 with multiple lines
 and no LFS pointer format`
 
-	_, isLFS := parseLFSPointer(content)
+	_, isLFS := ParseLFSPointer(content)
 
 	assert.False(t, isLFS, "Should not identify regular file as LFS pointer")
 }
@@ -72,7 +72,7 @@ func TestParseLFSPointer_InvalidVersionLine(t *testing.T) {
 oid sha256:4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393
 size 12345`
 
-	_, isLFS := parseLFSPointer(content)
+	_, isLFS := ParseLFSPointer(content)
 
 	assert.False(t, isLFS, "Should not identify file with invalid version as LFS pointer")
 }
@@ -81,7 +81,7 @@ func TestParseLFSPointer_MissingOID(t *testing.T) {
 	content := `version https://git-lfs.github.com/spec/v1
 size 12345`
 
-	_, isLFS := parseLFSPointer(content)
+	_, isLFS := ParseLFSPointer(content)
 
 	assert.False(t, isLFS, "Should not identify pointer without OID as valid")
 }
@@ -90,7 +90,7 @@ func TestParseLFSPointer_MissingSize(t *testing.T) {
 	content := `version https://git-lfs.github.com/spec/v1
 oid sha256:4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393`
 
-	_, isLFS := parseLFSPointer(content)
+	_, isLFS := ParseLFSPointer(content)
 
 	assert.False(t, isLFS, "Should not identify pointer without size as valid")
 }
@@ -100,7 +100,7 @@ func TestParseLFSPointer_MalformedSize(t *testing.T) {
 oid sha256:4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393
 size abc`
 
-	_, isLFS := parseLFSPointer(content)
+	_, isLFS := ParseLFSPointer(content)
 
 	assert.False(t, isLFS, "Should not identify pointer with malformed size as valid")
 }
@@ -109,7 +109,7 @@ func TestParseLFSPointer_TooShort(t *testing.T) {
 	content := `version https://git-lfs.github.com/spec/v1
 size 12345`
 
-	_, isLFS := parseLFSPointer(content)
+	_, isLFS := ParseLFSPointer(content)
 
 	assert.False(t, isLFS, "Should not identify file with too few lines as LFS pointer")
 }
@@ -117,7 +117,7 @@ size 12345`
 func TestParseLFSPointer_EmptyContent(t *testing.T) {
 	content := ``
 
-	_, isLFS := parseLFSPointer(content)
+	_, isLFS := ParseLFSPointer(content)
 
 	assert.False(t, isLFS, "Should not identify empty content as LFS pointer")
 }
@@ -230,7 +230,7 @@ func TestParseLFSPatterns(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := parseLFSPatterns(tt.content)
+			result := ParseLFSPatterns(tt.content)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -274,6 +274,18 @@ func TestMatchesLFSPattern(t *testing.T) {
 			expected: true,
 		},
 		{
+			name:     "Anchored pattern with leading slash",
+			filePath: "200MB-TESTFILE.ORG.pdf",
+			patterns: []string{"/200MB-TESTFILE.ORG.pdf"},
+			expected: true,
+		},
+		{
+			name:     "Anchored pattern with leading slash on both sides",
+			filePath: "/200MB-TESTFILE.ORG.pdf",
+			patterns: []string{"/200MB-TESTFILE.ORG.pdf"},
+			expected: true,
+		},
+		{
 			name:     "Wildcard in middle",
 			filePath: "test-file.zip",
 			patterns: []string{"test-*.zip"},
@@ -295,7 +307,7 @@ func TestMatchesLFSPattern(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := matchesLFSPattern(tt.filePath, tt.patterns)
+			result := MatchesLFSPattern(tt.filePath, tt.patterns)
 			assert.Equal(t, tt.expected, result)
 		})
 	}

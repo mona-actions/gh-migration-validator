@@ -63,6 +63,7 @@ type RepositoryData struct {
 	Releases              int
 	CommitCount           int
 	LatestCommitSHA       string
+	LatestCommitParentSHA string
 	BranchProtectionRules int
 	Webhooks              int
 	LFSObjects            int
@@ -77,6 +78,27 @@ type ValidationResult struct {
 	Status     string           // "✅ PASS", "❌ FAIL", "⚠️ WARN" - for display
 	StatusType ValidationStatus // Pass, Fail, Warn - for logic/testing
 	Difference int              // How many items are missing in target (negative if target has more)
+	// DifferenceNote, when set, overrides the auto-generated text in the Difference
+	// column (e.g. an explanation for a warning). Left empty for normal comparisons.
+	DifferenceNote string
+}
+
+// formatDifference returns the text shown in the "Difference" column for a result.
+// A non-empty DifferenceNote always takes precedence over the numeric formatting.
+func formatDifference(result ValidationResult) string {
+	if result.DifferenceNote != "" {
+		return result.DifferenceNote
+	}
+	if result.Difference > 0 {
+		return fmt.Sprintf("Missing: %d", result.Difference)
+	}
+	if result.Difference < 0 {
+		return fmt.Sprintf("Extra: %d", -result.Difference)
+	}
+	if result.Metric == "Latest Commit SHA" {
+		return "N/A"
+	}
+	return "Perfect match"
 }
 
 // HasFailures reports whether any validation result failed so callers can set exit codes accurately.
@@ -101,6 +123,8 @@ type MigrationValidator struct {
 type ValidationOptions struct {
 	SkipIssues                bool   // BBS has no native issues
 	SkipReleases              bool   // BBS has no releases
+	SkipPRs                   bool   // Skip pull request validation
+	SkipWebhooks              bool   // Skip webhook validation
 	SkipLFS                   bool   // Skip LFS validation
 	SkipMigrationLogOffset    bool   // Don't add +1 for migration log issue
 	SkipMigrationArchive      bool   // Skip migration archive comparisons (non-GitHub sources)
@@ -458,6 +482,18 @@ func (mv *MigrationValidator) ValidateWithOptions(targetOwner, targetRepo string
 	}
 	defer viper.Set("NO_LFS", previousNoLFS)
 
+	previousNoPRs := viper.GetBool("NO_PRS")
+	if opts.SkipPRs {
+		viper.Set("NO_PRS", true)
+	}
+	defer viper.Set("NO_PRS", previousNoPRs)
+
+	previousNoWebhooks := viper.GetBool("NO_WEBHOOKS")
+	if opts.SkipWebhooks {
+		viper.Set("NO_WEBHOOKS", true)
+	}
+	defer viper.Set("NO_WEBHOOKS", previousNoWebhooks)
+
 	// Validate access to target repository before starting
 	fmt.Println("Validating repository access...")
 	if err := mv.api.ValidateRepoAccess(api.TargetClient, targetOwner, targetRepo); err != nil {
@@ -525,44 +561,46 @@ func (mv *MigrationValidator) validateRepositoryData(opts ValidationOptions) []V
 		})
 	}
 
-	// Compare Total PRs
-	prDiff := mv.SourceData.PRs.Total - mv.TargetData.PRs.Total
-	prStatus, prStatusType := getValidationStatus(prDiff)
+	// Compare Total PRs (skip if opts.SkipPRs)
+	if !opts.SkipPRs {
+		prDiff := mv.SourceData.PRs.Total - mv.TargetData.PRs.Total
+		prStatus, prStatusType := getValidationStatus(prDiff)
 
-	results = append(results, ValidationResult{
-		Metric:     "Pull Requests (Total)",
-		SourceVal:  mv.SourceData.PRs.Total,
-		TargetVal:  mv.TargetData.PRs.Total,
-		Status:     prStatus,
-		StatusType: prStatusType,
-		Difference: prDiff,
-	})
+		results = append(results, ValidationResult{
+			Metric:     "Pull Requests (Total)",
+			SourceVal:  mv.SourceData.PRs.Total,
+			TargetVal:  mv.TargetData.PRs.Total,
+			Status:     prStatus,
+			StatusType: prStatusType,
+			Difference: prDiff,
+		})
 
-	// Compare Open PRs
-	openPRDiff := mv.SourceData.PRs.Open - mv.TargetData.PRs.Open
-	openPRStatus, openPRStatusType := getValidationStatus(openPRDiff)
+		// Compare Open PRs
+		openPRDiff := mv.SourceData.PRs.Open - mv.TargetData.PRs.Open
+		openPRStatus, openPRStatusType := getValidationStatus(openPRDiff)
 
-	results = append(results, ValidationResult{
-		Metric:     "Pull Requests (Open)",
-		SourceVal:  mv.SourceData.PRs.Open,
-		TargetVal:  mv.TargetData.PRs.Open,
-		Status:     openPRStatus,
-		StatusType: openPRStatusType,
-		Difference: openPRDiff,
-	})
+		results = append(results, ValidationResult{
+			Metric:     "Pull Requests (Open)",
+			SourceVal:  mv.SourceData.PRs.Open,
+			TargetVal:  mv.TargetData.PRs.Open,
+			Status:     openPRStatus,
+			StatusType: openPRStatusType,
+			Difference: openPRDiff,
+		})
 
-	// Compare Merged PRs
-	mergedPRDiff := mv.SourceData.PRs.Merged - mv.TargetData.PRs.Merged
-	mergedPRStatus, mergedPRStatusType := getValidationStatus(mergedPRDiff)
+		// Compare Merged PRs
+		mergedPRDiff := mv.SourceData.PRs.Merged - mv.TargetData.PRs.Merged
+		mergedPRStatus, mergedPRStatusType := getValidationStatus(mergedPRDiff)
 
-	results = append(results, ValidationResult{
-		Metric:     "Pull Requests (Merged)",
-		SourceVal:  mv.SourceData.PRs.Merged,
-		TargetVal:  mv.TargetData.PRs.Merged,
-		Status:     mergedPRStatus,
-		StatusType: mergedPRStatusType,
-		Difference: mergedPRDiff,
-	})
+		results = append(results, ValidationResult{
+			Metric:     "Pull Requests (Merged)",
+			SourceVal:  mv.SourceData.PRs.Merged,
+			TargetVal:  mv.TargetData.PRs.Merged,
+			Status:     mergedPRStatus,
+			StatusType: mergedPRStatusType,
+			Difference: mergedPRDiff,
+		})
+	}
 
 	// Compare Tags
 	tagDiff := mv.SourceData.Tags - mv.TargetData.Tags
@@ -630,18 +668,20 @@ func (mv *MigrationValidator) validateRepositoryData(opts ValidationOptions) []V
 		})
 	}
 
-	// Compare Webhooks
-	webhooksDiff := mv.SourceData.Webhooks - mv.TargetData.Webhooks
-	webhooksStatus, webhooksStatusType := getValidationStatus(webhooksDiff)
+	// Compare Webhooks (skip if opts.SkipWebhooks)
+	if !opts.SkipWebhooks {
+		webhooksDiff := mv.SourceData.Webhooks - mv.TargetData.Webhooks
+		webhooksStatus, webhooksStatusType := getValidationStatus(webhooksDiff)
 
-	results = append(results, ValidationResult{
-		Metric:     "Webhooks",
-		SourceVal:  mv.SourceData.Webhooks,
-		TargetVal:  mv.TargetData.Webhooks,
-		Status:     webhooksStatus,
-		StatusType: webhooksStatusType,
-		Difference: webhooksDiff,
-	})
+		results = append(results, ValidationResult{
+			Metric:     "Webhooks",
+			SourceVal:  mv.SourceData.Webhooks,
+			TargetVal:  mv.TargetData.Webhooks,
+			Status:     webhooksStatus,
+			StatusType: webhooksStatusType,
+			Difference: webhooksDiff,
+		})
+	}
 
 	// Compare LFS Objects (skip if opts.SkipLFS or NO_LFS flag is set)
 	if !opts.SkipLFS && !viper.GetBool("NO_LFS") {
@@ -661,19 +701,35 @@ func (mv *MigrationValidator) validateRepositoryData(opts ValidationOptions) []V
 	// Compare Latest Commit SHA
 	latestCommitStatus := ValidationStatusMessagePass
 	latestCommitStatusType := ValidationStatusPass
+	latestCommitNote := ""
 
 	if mv.SourceData.LatestCommitSHA != mv.TargetData.LatestCommitSHA {
 		latestCommitStatus = ValidationStatusMessageFail
 		latestCommitStatusType = ValidationStatusFail
+
+		// Azure DevOps: when the source has no LFS objects but the target does, a
+		// `git lfs migrate` step converted files to LFS during migration and rewrote
+		// the tip commit, so the latest SHA legitimately differs. If the parent commit
+		// (last commit - 1) still matches, the history is otherwise consistent, so we
+		// downgrade the mismatch from a hard failure to a warning.
+		if opts.SourceLabel == "Azure DevOps" &&
+			mv.SourceData.LFSObjects == 0 && mv.TargetData.LFSObjects > 0 &&
+			mv.SourceData.LatestCommitParentSHA != "" &&
+			mv.SourceData.LatestCommitParentSHA == mv.TargetData.LatestCommitParentSHA {
+			latestCommitStatus = ValidationStatusMessageWarn
+			latestCommitStatusType = ValidationStatusWarn
+			latestCommitNote = "Tip commit rewritten by git lfs migrate (parent commit matches)"
+		}
 	}
 
 	results = append(results, ValidationResult{
-		Metric:     "Latest Commit SHA",
-		SourceVal:  mv.SourceData.LatestCommitSHA,
-		TargetVal:  mv.TargetData.LatestCommitSHA,
-		Status:     latestCommitStatus,
-		StatusType: latestCommitStatusType,
-		Difference: 0, // Not applicable for SHA comparison
+		Metric:         "Latest Commit SHA",
+		SourceVal:      mv.SourceData.LatestCommitSHA,
+		TargetVal:      mv.TargetData.LatestCommitSHA,
+		Status:         latestCommitStatus,
+		StatusType:     latestCommitStatusType,
+		Difference:     0, // Not applicable for SHA comparison
+		DifferenceNote: latestCommitNote,
 	})
 
 	// Migration archive comparisons (GitHub-to-GitHub migrations only)
@@ -807,16 +863,20 @@ func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.
 		successfulRequests++
 	}
 
-	// Get PR counts
-	spinner.UpdateText(fmt.Sprintf("Fetching pull requests from %s/%s...", owner, name))
-	prCounts, err := mv.api.GetPRCounts(api.TargetClient, owner, name)
-	if err != nil {
-		failedRequests = append(failedRequests, "pull requests")
-		errorMessages = append(errorMessages, fmt.Sprintf("pull requests: %v", err))
-		mv.TargetData.PRs = &api.PRCounts{Total: 0, Open: 0, Merged: 0, Closed: 0}
+	// Get PR counts (skip if NO_PRS flag is set)
+	if !viper.GetBool("NO_PRS") {
+		spinner.UpdateText(fmt.Sprintf("Fetching pull requests from %s/%s...", owner, name))
+		prCounts, err := mv.api.GetPRCounts(api.TargetClient, owner, name)
+		if err != nil {
+			failedRequests = append(failedRequests, "pull requests")
+			errorMessages = append(errorMessages, fmt.Sprintf("pull requests: %v", err))
+			mv.TargetData.PRs = &api.PRCounts{Total: 0, Open: 0, Merged: 0, Closed: 0}
+		} else {
+			mv.TargetData.PRs = prCounts
+			successfulRequests++
+		}
 	} else {
-		mv.TargetData.PRs = prCounts
-		successfulRequests++
+		mv.TargetData.PRs = &api.PRCounts{Total: 0, Open: 0, Merged: 0, Closed: 0}
 	}
 
 	// Get tag count
@@ -865,6 +925,13 @@ func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.
 	} else {
 		mv.TargetData.LatestCommitSHA = latestCommitSHA
 		successfulRequests++
+
+		// Also record the parent of the tip commit. Used to detect a `git lfs migrate`
+		// rewrite (which only changes the tip commit) so the validator can warn instead
+		// of failing when the parent history still matches. Non-fatal on error.
+		if parentSHA, perr := mv.api.GetLatestCommitParentHash(api.TargetClient, owner, name); perr == nil {
+			mv.TargetData.LatestCommitParentSHA = parentSHA
+		}
 	}
 
 	// Get branch protection rules count
@@ -879,16 +946,18 @@ func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.
 		successfulRequests++
 	}
 
-	// Get webhook count
-	spinner.UpdateText(fmt.Sprintf("Fetching webhooks from %s/%s...", owner, name))
-	webhooks, err := mv.api.GetWebhookCount(api.TargetClient, owner, name)
-	if err != nil {
-		failedRequests = append(failedRequests, "webhooks")
-		errorMessages = append(errorMessages, fmt.Sprintf("webhooks: %v", err))
-		mv.TargetData.Webhooks = 0
-	} else {
-		mv.TargetData.Webhooks = webhooks
-		successfulRequests++
+	// Get webhook count (skip if NO_WEBHOOKS flag is set)
+	if !viper.GetBool("NO_WEBHOOKS") {
+		spinner.UpdateText(fmt.Sprintf("Fetching webhooks from %s/%s...", owner, name))
+		webhooks, err := mv.api.GetWebhookCount(api.TargetClient, owner, name)
+		if err != nil {
+			failedRequests = append(failedRequests, "webhooks")
+			errorMessages = append(errorMessages, fmt.Sprintf("webhooks: %v", err))
+			mv.TargetData.Webhooks = 0
+		} else {
+			mv.TargetData.Webhooks = webhooks
+			successfulRequests++
+		}
 	}
 
 	// Get LFS object count and validate them (skip if NO_LFS flag is set)
@@ -1026,16 +1095,7 @@ func (mv *MigrationValidator) displayValidationTable(title string, results []Val
 	tableData := [][]string{headers}
 
 	for _, result := range results {
-		diffStr := ""
-		if result.Difference > 0 {
-			diffStr = fmt.Sprintf("Missing: %d", result.Difference)
-		} else if result.Difference < 0 {
-			diffStr = fmt.Sprintf("Extra: %d", -result.Difference)
-		} else if result.Metric == "Latest Commit SHA" {
-			diffStr = "N/A"
-		} else {
-			diffStr = "Perfect match"
-		}
+		diffStr := formatDifference(result)
 
 		tableData = append(tableData, []string{
 			result.Metric,
@@ -1139,16 +1199,7 @@ func (mv *MigrationValidator) printMarkdownTable(results []ValidationResult, opt
 	fmt.Fprintln(writer, "|--------|--------|--------------|--------------|------------|")
 
 	for _, result := range results {
-		diffStr := ""
-		if result.Difference > 0 {
-			diffStr = fmt.Sprintf("Missing: %d", result.Difference)
-		} else if result.Difference < 0 {
-			diffStr = fmt.Sprintf("Extra: %d", -result.Difference)
-		} else if result.Metric == "Latest Commit SHA" {
-			diffStr = "N/A"
-		} else {
-			diffStr = "Perfect match"
-		}
+		diffStr := formatDifference(result)
 
 		fmt.Fprintf(writer, "| %s | %s | %v | %v | %s |\n",
 			result.Metric,
@@ -1242,6 +1293,15 @@ type RepoMapping struct {
 	SourceRepo string
 	TargetRepo string
 	IsFork     *bool // nil = unknown (will query API), non-nil = known from ListOrgRepos
+}
+
+// Label returns a display label for the mapping: "source → target" when names
+// differ, otherwise just the repo name.
+func (m RepoMapping) Label() string {
+	if m.SourceRepo != m.TargetRepo {
+		return fmt.Sprintf("%s → %s", m.SourceRepo, m.TargetRepo)
+	}
+	return m.SourceRepo
 }
 
 // RepoValidationResult holds validation results for a single repository in org-level validation.
@@ -1424,12 +1484,8 @@ func OrgHasFailures(summary *OrgValidationSummary) bool {
 }
 
 // orgRepoLabel returns a display label for a repo in org validation.
-// Shows "source → target" when names differ, otherwise just the repo name.
 func orgRepoLabel(repo RepoValidationResult) string {
-	if repo.SourceRepoName != repo.TargetRepoName {
-		return fmt.Sprintf("%s → %s", repo.SourceRepoName, repo.TargetRepoName)
-	}
-	return repo.SourceRepoName
+	return (RepoMapping{SourceRepo: repo.SourceRepoName, TargetRepo: repo.TargetRepoName}).Label()
 }
 
 // ParseRepoListCSV parses a CSV file with source,target repo mappings.
