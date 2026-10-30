@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1665,19 +1666,41 @@ func TestGetRateLimitStatus_NilSourceClient(t *testing.T) {
 	}
 }
 
+// rateLimitServerStats records what the rate limit test server has seen.
+type rateLimitServerStats struct {
+	mu                    sync.Mutex
+	rateLimitCalls        int
+	realQueries           int
+	rateLimitCallsAtQuery int
+}
+
+func (s *rateLimitServerStats) snapshot() (rateLimitCalls, realQueries, rateLimitCallsAtQuery int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.rateLimitCalls, s.realQueries, s.rateLimitCallsAtQuery
+}
+
 // newRateLimitTestAPI returns an API whose source GraphQL client talks to a
-// test server that answers rateLimit queries with rateLimitJSON and counts
-// every other query.
-func newRateLimitTestAPI(t *testing.T, rateLimitJSON string) (*GitHubAPI, *int) {
+// test server. Successive rateLimit queries are answered with rateLimitJSON in
+// order (the last one repeats); every other query is counted as a real query.
+func newRateLimitTestAPI(t *testing.T, rateLimitJSON ...string) (*GitHubAPI, *rateLimitServerStats) {
 	t.Helper()
-	otherQueries := 0
+	stats := &rateLimitServerStats{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
+		stats.mu.Lock()
+		defer stats.mu.Unlock()
 		if strings.Contains(string(body), "rateLimit") {
-			_, _ = io.WriteString(w, `{"data":{"rateLimit":`+rateLimitJSON+`}}`)
+			idx := stats.rateLimitCalls
+			if idx >= len(rateLimitJSON) {
+				idx = len(rateLimitJSON) - 1
+			}
+			stats.rateLimitCalls++
+			_, _ = io.WriteString(w, `{"data":{"rateLimit":`+rateLimitJSON[idx]+`}}`)
 			return
 		}
-		otherQueries++
+		stats.realQueries++
+		stats.rateLimitCallsAtQuery = stats.rateLimitCalls
 		_, _ = io.WriteString(w, `{"data":{"viewer":{"login":"octocat"}}}`)
 	}))
 	t.Cleanup(srv.Close)
@@ -1686,7 +1709,29 @@ func newRateLimitTestAPI(t *testing.T, rateLimitJSON string) (*GitHubAPI, *int) 
 		sourceGraphClient: &RateLimitAwareGraphQLClient{
 			client: githubv4.NewEnterpriseClient(srv.URL, srv.Client()),
 		},
-	}, &otherQueries
+	}, stats
+}
+
+// runViewerQuery runs a real query through the rate limit aware client and
+// returns how long it took, failing the test if it doesn't finish in time.
+func runViewerQuery(t *testing.T, api *GitHubAPI) (login string, elapsed time.Duration) {
+	t.Helper()
+	var q struct {
+		Viewer struct{ Login string }
+	}
+	start := time.Now()
+	done := make(chan error, 1)
+	go func() { done <- api.sourceGraphClient.Query(context.Background(), &q, nil) }()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Query() unexpected error: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Query() did not complete in time")
+	}
+	return q.Viewer.Login, time.Since(start)
 }
 
 func TestGetRateLimitStatus_DisabledWhenNull(t *testing.T) {
@@ -1714,24 +1759,49 @@ func TestGetRateLimitStatus_Enabled(t *testing.T) {
 }
 
 func TestRateLimitAwareGraphQLClient_QueryProceedsWhenRateLimitingDisabled(t *testing.T) {
-	api, otherQueries := newRateLimitTestAPI(t, "null")
+	api, stats := newRateLimitTestAPI(t, "null")
 
-	var q struct {
-		Viewer struct{ Login string }
+	login, _ := runViewerQuery(t, api)
+
+	_, realQueries, _ := stats.snapshot()
+	if realQueries != 1 || login != "octocat" {
+		t.Errorf("Query() ran %d real queries, login = %q; want 1 and octocat", realQueries, login)
 	}
-	done := make(chan error, 1)
-	go func() { done <- api.sourceGraphClient.Query(context.Background(), &q, nil) }()
+}
 
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("Query() unexpected error: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("Query() hung when rateLimit is null")
+func TestRateLimitAwareGraphQLClient_QueryProceedsWhenRemainingPositive(t *testing.T) {
+	api, stats := newRateLimitTestAPI(t, `{"remaining":10,"resetAt":"2030-01-01T00:00:00Z"}`)
+
+	login, elapsed := runViewerQuery(t, api)
+
+	rateLimitCalls, realQueries, _ := stats.snapshot()
+	if realQueries != 1 || rateLimitCalls != 1 || login != "octocat" {
+		t.Errorf("Query() made %d rateLimit checks and %d real queries, login = %q; want 1, 1 and octocat",
+			rateLimitCalls, realQueries, login)
 	}
+	if elapsed > time.Second {
+		t.Errorf("Query() took %v with capacity available, want no waiting", elapsed)
+	}
+}
 
-	if *otherQueries != 1 || q.Viewer.Login != "octocat" {
-		t.Errorf("Query() ran %d real queries, login = %q; want 1 and octocat", *otherQueries, q.Viewer.Login)
+func TestRateLimitAwareGraphQLClient_QueryWaitsForResetWhenExhausted(t *testing.T) {
+	resetAt := time.Now().Add(1500 * time.Millisecond).UTC().Format(time.RFC3339Nano)
+	api, stats := newRateLimitTestAPI(t,
+		`{"remaining":0,"resetAt":"`+resetAt+`"}`,
+		`{"remaining":5000,"resetAt":"2030-01-01T00:00:00Z"}`,
+	)
+
+	login, elapsed := runViewerQuery(t, api)
+
+	rateLimitCalls, realQueries, callsAtQuery := stats.snapshot()
+	if realQueries != 1 || login != "octocat" {
+		t.Fatalf("Query() ran %d real queries, login = %q; want 1 and octocat", realQueries, login)
+	}
+	if callsAtQuery != 2 || rateLimitCalls != 2 {
+		t.Errorf("real query was sent after %d rateLimit checks (total %d), want 2: it must wait for capacity",
+			callsAtQuery, rateLimitCalls)
+	}
+	if elapsed < time.Second {
+		t.Errorf("Query() returned after %v, want it to wait for the reset (~1.5s)", elapsed)
 	}
 }
