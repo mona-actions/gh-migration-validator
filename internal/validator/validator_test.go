@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pterm/pterm"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"mona-actions/gh-migration-validator/internal/api"
+	"mona-actions/gh-migration-validator/internal/migrationarchive"
 )
 
 // expectedValidationMetrics defines all the metrics that should be validated
@@ -1364,8 +1366,8 @@ func TestWriteOrgMarkdownReport_RepoMapping(t *testing.T) {
 func TestValidateRepositoryData_IssuesDisabledPasses(t *testing.T) {
 	prs := &api.PRCounts{}
 	for _, disabled := range []bool{true, false} {
-		source := &RepositoryData{Owner: "s", Name: "r", PRs: prs, IssuesDisabled: disabled}
-		target := &RepositoryData{Owner: "t", Name: "r", PRs: prs}
+		source := &RepositoryData{Owner: "s", Name: "r", PRs: prs, IssuesDisabled: disabled, IssuesCountFetched: true}
+		target := &RepositoryData{Owner: "t", Name: "r", PRs: prs, IssuesCountFetched: true}
 		results := setupTestValidator(source, target).validateRepositoryData(ValidationOptions{})
 
 		issues := results[0]
@@ -1374,6 +1376,41 @@ func TestValidateRepositoryData_IssuesDisabledPasses(t *testing.T) {
 			assert.Equal(t, "Issues disabled on repository", formatDifference(issues))
 		} else {
 			assert.Equal(t, ValidationStatusFail, issues.StatusType)
+		}
+	}
+}
+
+func TestValidateRepositoryData_IssuesDisabledRequiresBothCounts(t *testing.T) {
+	prs := &api.PRCounts{}
+	source := &RepositoryData{Owner: "s", Name: "r", PRs: prs, IssuesDisabled: true, IssuesCountFetched: true}
+	target := &RepositoryData{Owner: "t", Name: "r", PRs: prs}
+	results := setupTestValidator(source, target).validateRepositoryData(ValidationOptions{})
+
+	assert.Equal(t, ValidationStatusFail, results[0].StatusType)
+}
+
+func TestValidateRepositoryData_ArchiveIssuesDisabled(t *testing.T) {
+	prs := &api.PRCounts{}
+	find := func(results []ValidationResult) ValidationResult {
+		for _, r := range results {
+			if strings.HasPrefix(r.Metric, "Archive vs Target Issues") {
+				return r
+			}
+		}
+		t.Fatal("archive vs target issues result not found")
+		return ValidationResult{}
+	}
+
+	for _, archiveIssues := range []int{0, 3} {
+		source := &RepositoryData{Owner: "s", Name: "r", PRs: prs, IssuesDisabled: true, IssuesCountFetched: true,
+			MigrationArchive: &migrationarchive.MigrationArchiveMetrics{Issues: archiveIssues}}
+		target := &RepositoryData{Owner: "t", Name: "r", PRs: prs, IssuesCountFetched: true}
+		r := find(setupTestValidator(source, target).validateRepositoryData(ValidationOptions{}))
+		if archiveIssues == 0 {
+			assert.Equal(t, ValidationStatusPass, r.StatusType)
+			assert.Equal(t, "Issues disabled on repository", formatDifference(r))
+		} else {
+			assert.Equal(t, ValidationStatusFail, r.StatusType)
 		}
 	}
 }
