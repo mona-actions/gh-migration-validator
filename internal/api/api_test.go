@@ -5,10 +5,13 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-github/v62/github"
+	"github.com/shurcooL/githubv4"
 	"github.com/spf13/viper"
 )
 
@@ -1659,5 +1662,76 @@ func TestGetRateLimitStatus_NilSourceClient(t *testing.T) {
 	}
 	if info != nil {
 		t.Error("GetRateLimitStatus(SourceClient) should return nil info when source client is nil")
+	}
+}
+
+// newRateLimitTestAPI returns an API whose source GraphQL client talks to a
+// test server that answers rateLimit queries with rateLimitJSON and counts
+// every other query.
+func newRateLimitTestAPI(t *testing.T, rateLimitJSON string) (*GitHubAPI, *int) {
+	t.Helper()
+	otherQueries := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(body), "rateLimit") {
+			_, _ = io.WriteString(w, `{"data":{"rateLimit":`+rateLimitJSON+`}}`)
+			return
+		}
+		otherQueries++
+		_, _ = io.WriteString(w, `{"data":{"viewer":{"login":"octocat"}}}`)
+	}))
+	t.Cleanup(srv.Close)
+
+	return &GitHubAPI{
+		sourceGraphClient: &RateLimitAwareGraphQLClient{
+			client: githubv4.NewEnterpriseClient(srv.URL, srv.Client()),
+		},
+	}, &otherQueries
+}
+
+func TestGetRateLimitStatus_DisabledWhenNull(t *testing.T) {
+	api, _ := newRateLimitTestAPI(t, "null")
+
+	info, err := api.GetRateLimitStatus(SourceClient)
+	if err != nil {
+		t.Fatalf("GetRateLimitStatus() unexpected error: %v", err)
+	}
+	if !info.Disabled {
+		t.Errorf("GetRateLimitStatus() Disabled = false, want true; info = %+v", info)
+	}
+}
+
+func TestGetRateLimitStatus_Enabled(t *testing.T) {
+	api, _ := newRateLimitTestAPI(t, `{"remaining":4321,"resetAt":"2030-01-01T00:00:00Z"}`)
+
+	info, err := api.GetRateLimitStatus(SourceClient)
+	if err != nil {
+		t.Fatalf("GetRateLimitStatus() unexpected error: %v", err)
+	}
+	if info.Disabled || info.Remaining != 4321 || info.ResetAt.IsZero() {
+		t.Errorf("GetRateLimitStatus() = %+v, want remaining 4321, non-zero ResetAt, not disabled", info)
+	}
+}
+
+func TestRateLimitAwareGraphQLClient_QueryProceedsWhenRateLimitingDisabled(t *testing.T) {
+	api, otherQueries := newRateLimitTestAPI(t, "null")
+
+	var q struct {
+		Viewer struct{ Login string }
+	}
+	done := make(chan error, 1)
+	go func() { done <- api.sourceGraphClient.Query(context.Background(), &q, nil) }()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Query() unexpected error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Query() hung when rateLimit is null")
+	}
+
+	if *otherQueries != 1 || q.Viewer.Login != "octocat" {
+		t.Errorf("Query() ran %d real queries, login = %q; want 1 and octocat", *otherQueries, q.Viewer.Login)
 	}
 }
