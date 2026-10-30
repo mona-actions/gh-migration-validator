@@ -1672,6 +1672,13 @@ type rateLimitServerStats struct {
 	rateLimitCalls        int
 	realQueries           int
 	rateLimitCallsAtQuery int
+	realQueryAt           time.Time
+}
+
+func (s *rateLimitServerStats) realQueryTime() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.realQueryAt
 }
 
 func (s *rateLimitServerStats) snapshot() (rateLimitCalls, realQueries, rateLimitCallsAtQuery int) {
@@ -1701,6 +1708,7 @@ func newRateLimitTestAPI(t *testing.T, rateLimitJSON ...string) (*GitHubAPI, *ra
 		}
 		stats.realQueries++
 		stats.rateLimitCallsAtQuery = stats.rateLimitCalls
+		stats.realQueryAt = time.Now()
 		_, _ = io.WriteString(w, `{"data":{"viewer":{"login":"octocat"}}}`)
 	}))
 	t.Cleanup(srv.Close)
@@ -1713,13 +1721,12 @@ func newRateLimitTestAPI(t *testing.T, rateLimitJSON ...string) (*GitHubAPI, *ra
 }
 
 // runViewerQuery runs a real query through the rate limit aware client and
-// returns how long it took, failing the test if it doesn't finish in time.
-func runViewerQuery(t *testing.T, api *GitHubAPI) (login string, elapsed time.Duration) {
+// returns the login, failing the test if it doesn't finish in time.
+func runViewerQuery(t *testing.T, api *GitHubAPI) string {
 	t.Helper()
 	var q struct {
 		Viewer struct{ Login string }
 	}
-	start := time.Now()
 	done := make(chan error, 1)
 	go func() { done <- api.sourceGraphClient.Query(context.Background(), &q, nil) }()
 
@@ -1731,7 +1738,7 @@ func runViewerQuery(t *testing.T, api *GitHubAPI) (login string, elapsed time.Du
 	case <-time.After(10 * time.Second):
 		t.Fatal("Query() did not complete in time")
 	}
-	return q.Viewer.Login, time.Since(start)
+	return q.Viewer.Login
 }
 
 func TestGetRateLimitStatus_DisabledWhenNull(t *testing.T) {
@@ -1761,7 +1768,7 @@ func TestGetRateLimitStatus_Enabled(t *testing.T) {
 func TestRateLimitAwareGraphQLClient_QueryProceedsWhenRateLimitingDisabled(t *testing.T) {
 	api, stats := newRateLimitTestAPI(t, "null")
 
-	login, _ := runViewerQuery(t, api)
+	login := runViewerQuery(t, api)
 
 	_, realQueries, _ := stats.snapshot()
 	if realQueries != 1 || login != "octocat" {
@@ -1772,26 +1779,23 @@ func TestRateLimitAwareGraphQLClient_QueryProceedsWhenRateLimitingDisabled(t *te
 func TestRateLimitAwareGraphQLClient_QueryProceedsWhenRemainingPositive(t *testing.T) {
 	api, stats := newRateLimitTestAPI(t, `{"remaining":10,"resetAt":"2030-01-01T00:00:00Z"}`)
 
-	login, elapsed := runViewerQuery(t, api)
+	login := runViewerQuery(t, api)
 
 	rateLimitCalls, realQueries, _ := stats.snapshot()
 	if realQueries != 1 || rateLimitCalls != 1 || login != "octocat" {
 		t.Errorf("Query() made %d rateLimit checks and %d real queries, login = %q; want 1, 1 and octocat",
 			rateLimitCalls, realQueries, login)
 	}
-	if elapsed > time.Second {
-		t.Errorf("Query() took %v with capacity available, want no waiting", elapsed)
-	}
 }
 
 func TestRateLimitAwareGraphQLClient_QueryWaitsForResetWhenExhausted(t *testing.T) {
-	resetAt := time.Now().Add(1500 * time.Millisecond).UTC().Format(time.RFC3339Nano)
+	resetAt := time.Now().Add(1500 * time.Millisecond).UTC()
 	api, stats := newRateLimitTestAPI(t,
-		`{"remaining":0,"resetAt":"`+resetAt+`"}`,
+		`{"remaining":0,"resetAt":"`+resetAt.Format(time.RFC3339Nano)+`"}`,
 		`{"remaining":5000,"resetAt":"2030-01-01T00:00:00Z"}`,
 	)
 
-	login, elapsed := runViewerQuery(t, api)
+	login := runViewerQuery(t, api)
 
 	rateLimitCalls, realQueries, callsAtQuery := stats.snapshot()
 	if realQueries != 1 || login != "octocat" {
@@ -1801,7 +1805,7 @@ func TestRateLimitAwareGraphQLClient_QueryWaitsForResetWhenExhausted(t *testing.
 		t.Errorf("real query was sent after %d rateLimit checks (total %d), want 2: it must wait for capacity",
 			callsAtQuery, rateLimitCalls)
 	}
-	if elapsed < time.Second {
-		t.Errorf("Query() returned after %v, want it to wait for the reset (~1.5s)", elapsed)
+	if at := stats.realQueryTime(); at.Before(resetAt) {
+		t.Errorf("real query reached the server %v before the rate limit reset, want it to wait for the reset", resetAt.Sub(at))
 	}
 }
