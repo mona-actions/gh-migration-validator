@@ -1360,3 +1360,20 @@ func TestWriteOrgMarkdownReport_RepoMapping(t *testing.T) {
 
 	assert.Contains(t, output, "old-name → new-name")
 }
+
+func TestValidateRepositoryData_IssuesDisabledPasses(t *testing.T) {
+	prs := &api.PRCounts{}
+	for _, disabled := range []bool{true, false} {
+		source := &RepositoryData{Owner: "s", Name: "r", PRs: prs, IssuesDisabled: disabled}
+		target := &RepositoryData{Owner: "t", Name: "r", PRs: prs}
+		results := setupTestValidator(source, target).validateRepositoryData(ValidationOptions{})
+
+		issues := results[0]
+		if disabled {
+			assert.Equal(t, ValidationStatusPass, issues.StatusType)
+			assert.Equal(t, "Issues disabled on repository", formatDifference(issues))
+		} else {
+			assert.Equal(t, ValidationStatusFail, issues.StatusType)
+		}
+	}
+}

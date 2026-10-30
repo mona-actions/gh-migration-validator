@@ -412,6 +412,33 @@ func (api *GitHubAPI) GetIssueCount(clientType ClientType, owner, name string) (
 	return query.Repository.Issues.TotalCount, nil
 }
 
+// GetIssuesEnabled reports whether issues are enabled on a repository
+func (api *GitHubAPI) GetIssuesEnabled(clientType ClientType, owner, name string) (bool, error) {
+	ctx := context.Background()
+
+	var query struct {
+		Repository struct {
+			HasIssuesEnabled bool
+		} `graphql:"repository(owner: $owner, name: $name)"`
+	}
+
+	variables := map[string]interface{}{
+		"owner": githubv4.String(owner),
+		"name":  githubv4.String(name),
+	}
+
+	client, clientName, err := api.getGraphQLClient(clientType)
+	if err != nil {
+		return false, err
+	}
+
+	if err := client.Query(ctx, &query, variables); err != nil {
+		return false, fmt.Errorf("failed to query %s repository issues setting: %v", clientName, err)
+	}
+
+	return query.Repository.HasIssuesEnabled, nil
+}
+
 // PRCounts holds the counts for different pull request states
 type PRCounts struct {
 	Open   int
