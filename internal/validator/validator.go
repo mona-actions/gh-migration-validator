@@ -230,7 +230,7 @@ func (mv *MigrationValidator) checkAndWarnRateLimits(checkSource bool) {
 		sourceRL, sourceErr := mv.api.GetRateLimitStatus(api.SourceClient)
 		if sourceErr != nil {
 			pterm.DefaultLogger.Warn("Source API rate limit check failed", pterm.DefaultLogger.Args("error", sourceErr.Error()))
-		} else {
+		} else if !sourceRL.Disabled {
 			output.LogRateLimitWarning("Source", sourceRL.Remaining, sourceRL.ResetAt, threshold)
 		}
 	}
@@ -238,7 +238,7 @@ func (mv *MigrationValidator) checkAndWarnRateLimits(checkSource bool) {
 	targetRL, targetErr := mv.api.GetRateLimitStatus(api.TargetClient)
 	if targetErr != nil {
 		pterm.DefaultLogger.Warn("Target API rate limit check failed", pterm.DefaultLogger.Args("error", targetErr.Error()))
-	} else {
+	} else if !targetRL.Disabled {
 		output.LogRateLimitWarning("Target", targetRL.Remaining, targetRL.ResetAt, threshold)
 	}
 }

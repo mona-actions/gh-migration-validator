@@ -326,18 +326,23 @@ func (api *GitHubAPI) IsRepoFork(clientType ClientType, owner, name string) (boo
 type RateLimitInfo struct {
 	Remaining int
 	ResetAt   time.Time
+	// Disabled is true when the server doesn't enforce rate limiting
+	// (GHES returns `rateLimit: null` in that case).
+	Disabled bool
+}
+
+type graphQLRateLimit struct {
+	RateLimit *struct {
+		Remaining int
+		ResetAt   githubv4.DateTime
+	}
 }
 
 // GetRateLimitStatus returns the current rate limit status for the specified client
 func (api *GitHubAPI) GetRateLimitStatus(clientType ClientType) (*RateLimitInfo, error) {
 	ctx := context.Background()
 
-	var query struct {
-		RateLimit struct {
-			Remaining int
-			ResetAt   githubv4.DateTime
-		}
-	}
+	var query graphQLRateLimit
 
 	client, clientName, err := api.getGraphQLClient(clientType)
 	if err != nil {
@@ -350,6 +355,10 @@ func (api *GitHubAPI) GetRateLimitStatus(clientType ClientType) (*RateLimitInfo,
 		return nil, fmt.Errorf("failed to query %s rate limit: %w", clientName, err)
 	}
 
+	if query.RateLimit == nil {
+		return &RateLimitInfo{Disabled: true}, nil
+	}
+
 	return &RateLimitInfo{
 		Remaining: query.RateLimit.Remaining,
 		ResetAt:   query.RateLimit.ResetAt.Time,
@@ -357,20 +366,15 @@ func (api *GitHubAPI) GetRateLimitStatus(clientType ClientType) (*RateLimitInfo,
 }
 
 func (c *RateLimitAwareGraphQLClient) Query(ctx context.Context, q interface{}, variables map[string]interface{}) error {
-	var rateLimitQuery struct {
-		RateLimit struct {
-			Remaining int
-			ResetAt   githubv4.DateTime
-		}
-	}
-
 	for {
 		// Check the current rate limit
+		var rateLimitQuery graphQLRateLimit
 		if err := c.client.Query(ctx, &rateLimitQuery, nil); err != nil {
 			return err
 		}
 
-		if rateLimitQuery.RateLimit.Remaining > 0 {
+		// A null rateLimit means rate limiting is disabled (GHES)
+		if rateLimitQuery.RateLimit == nil || rateLimitQuery.RateLimit.Remaining > 0 {
 			// Proceed with the actual query
 			return c.client.Query(ctx, q, variables)
 		}
