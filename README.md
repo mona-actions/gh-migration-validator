@@ -174,7 +174,7 @@ For full usage, options, and validation details, see **[Azure DevOps Validation]
 
 The tool compares the following metrics between source and target repositories:
 
-- **Issues**: Total count (expects +1 in target for migration log issue)
+- **Issues**: Total count (expects +1 in target for migration log issue; if both have 0 issues and issues are disabled on the repository, the check passes and notes "Issues disabled on repository")
 - **Pull Requests**: Total, Open, Merged, and Closed counts
 - **Tags**: Total count of Git tags
 - **Releases**: Total count of GitHub releases

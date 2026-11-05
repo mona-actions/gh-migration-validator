@@ -58,6 +58,8 @@ type RepositoryData struct {
 	Owner                 string
 	Name                  string
 	Issues                int
+	IssuesDisabled        bool // Issues feature is disabled on the repository (only checked when count is 0)
+	IssuesCountFetched    bool // Issue count request succeeded
 	PRs                   *api.PRCounts
 	Tags                  int
 	Releases              int
@@ -265,7 +267,13 @@ func (mv *MigrationValidator) retrieveSource(owner, name string, spinner *pterm.
 		mv.SourceData.Issues = 0
 	} else {
 		mv.SourceData.Issues = issues
+		mv.SourceData.IssuesCountFetched = true
 		successfulRequests++
+		if issues == 0 {
+			if enabled, enabledErr := mv.api.GetIssuesEnabled(api.SourceClient, owner, name); enabledErr == nil {
+				mv.SourceData.IssuesDisabled = !enabled
+			}
+		}
 	}
 
 	// Get PR counts
@@ -550,14 +558,25 @@ func (mv *MigrationValidator) validateRepositoryData(opts ValidationOptions) []V
 		}
 		issueDiff := expectedTargetIssues - mv.TargetData.Issues
 		issueStatus, issueStatusType := getValidationStatus(issueDiff)
+		issueNote := ""
+
+		// No migration log issue can exist when issues are disabled
+		if issueDiff > 0 && mv.SourceData.IssuesCountFetched && mv.TargetData.IssuesCountFetched &&
+			mv.SourceData.Issues == 0 && mv.TargetData.Issues == 0 &&
+			(mv.SourceData.IssuesDisabled || mv.TargetData.IssuesDisabled) {
+			issueDiff = 0
+			issueStatus, issueStatusType = getValidationStatus(0)
+			issueNote = "Issues disabled on repository"
+		}
 
 		results = append(results, ValidationResult{
-			Metric:     metricLabel,
-			SourceVal:  mv.SourceData.Issues,
-			TargetVal:  mv.TargetData.Issues,
-			Status:     issueStatus,
-			StatusType: issueStatusType,
-			Difference: issueDiff,
+			Metric:         metricLabel,
+			SourceVal:      mv.SourceData.Issues,
+			TargetVal:      mv.TargetData.Issues,
+			Status:         issueStatus,
+			StatusType:     issueStatusType,
+			Difference:     issueDiff,
+			DifferenceNote: issueNote,
 		})
 	}
 
@@ -787,14 +806,26 @@ func (mv *MigrationValidator) validateRepositoryData(opts ValidationOptions) []V
 		expectedTargetFromArchive := mv.SourceData.MigrationArchive.Issues + MigrationLogIssueOffset
 		archiveToTargetIssuesDiff := expectedTargetFromArchive - mv.TargetData.Issues
 		archiveToTargetIssuesStatus, archiveToTargetIssuesStatusType := getValidationStatus(archiveToTargetIssuesDiff)
+		archiveToTargetIssuesNote := ""
+
+		// No migration log issue can exist when issues are disabled
+		if archiveToTargetIssuesDiff > 0 && mv.SourceData.MigrationArchive.Issues == 0 &&
+			mv.SourceData.IssuesCountFetched && mv.TargetData.IssuesCountFetched &&
+			mv.SourceData.Issues == 0 && mv.TargetData.Issues == 0 &&
+			(mv.SourceData.IssuesDisabled || mv.TargetData.IssuesDisabled) {
+			archiveToTargetIssuesDiff = 0
+			archiveToTargetIssuesStatus, archiveToTargetIssuesStatusType = getValidationStatus(0)
+			archiveToTargetIssuesNote = "Issues disabled on repository"
+		}
 
 		results = append(results, ValidationResult{
-			Metric:     "Archive vs Target Issues (expected +1 for migration log)",
-			SourceVal:  mv.SourceData.MigrationArchive.Issues,
-			TargetVal:  mv.TargetData.Issues,
-			Status:     archiveToTargetIssuesStatus,
-			StatusType: archiveToTargetIssuesStatusType,
-			Difference: archiveToTargetIssuesDiff,
+			Metric:         "Archive vs Target Issues (expected +1 for migration log)",
+			SourceVal:      mv.SourceData.MigrationArchive.Issues,
+			TargetVal:      mv.TargetData.Issues,
+			Status:         archiveToTargetIssuesStatus,
+			StatusType:     archiveToTargetIssuesStatusType,
+			Difference:     archiveToTargetIssuesDiff,
+			DifferenceNote: archiveToTargetIssuesNote,
 		})
 
 		archiveToTargetPRsDiff := mv.SourceData.MigrationArchive.PullRequests - mv.TargetData.PRs.Total
@@ -860,7 +891,13 @@ func (mv *MigrationValidator) retrieveTarget(owner, name string, spinner *pterm.
 		mv.TargetData.Issues = 0
 	} else {
 		mv.TargetData.Issues = issues
+		mv.TargetData.IssuesCountFetched = true
 		successfulRequests++
+		if issues == 0 {
+			if enabled, enabledErr := mv.api.GetIssuesEnabled(api.TargetClient, owner, name); enabledErr == nil {
+				mv.TargetData.IssuesDisabled = !enabled
+			}
+		}
 	}
 
 	// Get PR counts (skip if NO_PRS flag is set)
